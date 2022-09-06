@@ -1,0 +1,25 @@
+{
+  "name": "api-gateway-nodejs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy-prod": "npm run build && npm run generate-prod && cd dist && terraform init && terraform apply -auto-approve",
+    "generate-prod": "STAGE=prod BASE_DOMAIN=example.com barbe generate config.hcl --output dist",
+    "build": "./node_modules/.bin/esbuild src/handlers.ts --bundle --target=node16 --platform=node --outfile=dist/build.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.163.0",
+    "@aws-sdk/util-dynamodb": "^3.163.0",
+    "@types/aws-lambda": "^8.10.102",
+    "@types/aws-sdk": "^2.7.0",
+    "aws-lambda": "^1.0.7",
+    "esbuild": "^0.15.7"
+  },
+  "devDependencies": {
+    "@types/node": "^18.7.14"
+  }
+}
