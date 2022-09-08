@@ -5,30 +5,30 @@
             "steps": [
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/utils/for_each.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/for_each.jsonnet"
                     ]
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/utils/passthrough.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/passthrough.jsonnet"
                     ]
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/dynamodb/aws_dynamodb.cue",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_kinesis.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_lambda.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_s3.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_http_api.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_fargate_task.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/dynamodb/aws_dynamodb.cue",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_kinesis.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_lambda.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_s3.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_http_api.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_fargate_task.jsonnet"
                     ]
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_base.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/aws/aws_iam.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/utils/provider.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/d61ae8876eb7a67db219306d16e2c0f499a8e4a8/utils/state_store.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_base.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_iam.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/provider.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/state_store.jsonnet"
                     ]
                 }
             ]
