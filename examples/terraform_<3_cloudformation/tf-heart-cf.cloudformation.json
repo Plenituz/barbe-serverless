@@ -1,0 +1,18 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Resources": {
+        "S3Bucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {},
+            "DeletionPolicy": "Retain"
+        }
+    },
+    "Outputs": {
+        "S3Bucket": {
+            "Value": {
+                "Ref": "S3Bucket"
+            },
+            "Description": "Name of the S3 bucket"
+        }
+    }
+}

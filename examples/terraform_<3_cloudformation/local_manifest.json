@@ -1,0 +1,46 @@
+{
+    "latest": "0.0.1",
+    "versions": {
+        "0.0.1": {
+            "steps": [
+                {
+                    "templates": [
+                        "file://../../utils/for_each.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "file://../../utils/passthrough.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "file://../../aws/aws_dynamodb.jsonnet",
+                        "file://../../aws/aws_kinesis.jsonnet",
+                        "file://../../aws/aws_lambda.jsonnet",
+                        "file://../../aws/aws_s3.jsonnet",
+                        "file://../../aws/aws_http_api.jsonnet",
+                        "file://../../aws/aws_fargate_task.jsonnet",
+                        "file://../../utils/sls_framework_reader.jsonnet",
+                        "file://../../utils/cloudformation_reader.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "file://../../aws/aws_base.jsonnet",
+                        "file://../../aws/aws_iam.jsonnet",
+                        "file://../../utils/provider.jsonnet",
+                        "file://../../utils/state_store.jsonnet",
+                        "file://../../utils/sls_framework_applier.jsonnet",
+                        "file://../../utils/cloudformation_applier.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "file://../../utils/terraform_apply.jsonnet"
+                    ]
+                }
+            ]
+        }
+    }
+}

@@ -1,6 +1,48 @@
 {
-    "latest": "0.0.1",
+    "latest": "0.0.2",
     "versions": {
+        "0.0.2": {
+            "steps": [
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/for_each.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/passthrough.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/dynamodb/aws_dynamodb.cue",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_kinesis.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_lambda.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_s3.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_http_api.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_fargate_task.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_reader.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_reader.jsonnet"
+
+                    ]
+                },
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_base.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_iam.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/provider.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/state_store.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_applier.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_applier.jsonnet"
+                    ]
+                },
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/terraform_apply.jsonnet"
+                    ]
+                }
+            ]
+        },
         "0.0.1": {
             "steps": [
                 {

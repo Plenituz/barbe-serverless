@@ -1,9 +1,9 @@
 # The 5 minutes getting started guide
 
-Barbe-serverless is a Barbe template that generates Terraform files. We do not have any built in build/deploy system **yet**, 
-so you'll need to build your application yourself and to run `terraform` once the Terraform files are generated. 
+Barbe-serverless generates Terraform templates, Dockerfiles, zip archives and everything else you will need to deploy your application. 
+We do not have any built in build system **yet**, so you'll need to build your application yourself (bundle your javascript, compile your Go, etc). 
 
-For now let's get started on a project
+Let's get started on a project
 
 ### The basic project setup
 
@@ -37,14 +37,14 @@ aws_function "insert-item" {
 ```
 
 The block we added will create a Lambda function named `insert-item`, the ZIP package of the function will contain the file at `build/bundle.js`. 
-This example assumes that you have built a javascript project and put it in `build/bundle.js` with a `insertItem` function defined in the global scope.
+This example assumes that you have bundled a javascript project and put it in `build/bundle.js` with a `insertItem` function defined in the global scope.
 Since Barbe doesn't mess with your build (yet), you can use any other runtime the same way.
 ```js
 // build/bundle.js
 exports.insertItem =  async function(event, context) { ... }
 ```
 
-Before we add more resources, let's deploy this project. The first thing we'll need is the Barbe CLI, you can find the installation instructions [here](https://github.com/Plenituz/barbe/blob/main/docs/installation.md).
+Before we add more resources, let's deploy this project. We'll need the Barbe CLI, you can find the installation instructions [here](https://github.com/Plenituz/barbe/blob/main/docs/installation.md).
 Then we can run
 ```bash
 barbe generate config.hcl --output dist
@@ -60,38 +60,38 @@ dist/
 
 Opening the `generated.tf` file, we can see that it contains Terraform definitions for our Lambda function, amongst other things like a log group and an IAM role.
 We don't need to know about all the details, but it's good to understand where to look in case you need to debug or double check something
-```hcl
-resource "aws_lambda_function" "insert-item_lambda" {
-  architectures    = ["x86_64"]
-  role             = aws_iam_role.default_lambda_role.arn
-  filename         = ".package/insert-item_lambda_package.zip"
-  memory_size      = 128
-  package_type     = "Zip"
-  runtime          = "nodejs16.x"
-  function_name    = "insert-item"
-  handler          = "src/insert-item.handler"
-  source_code_hash = filebase64sha256(".package/insert-item_lambda_package.zip")
-  lifecycle {
-    ignore_changes = [architectures]
-  }
-  publish = true
-  timeout = 30
-}
-```
 
-We can also open the `.package/insert-item_lambda_package.zip` file and see that it contains the file indicated in the `package` block.
+We can also open the `.package/insert-item_lambda_package.zip` file and see that it contains the `build/bundle.js` file indicated in the `package` block.
 
-Once we have the Terraform files generated, we can run `terraform init` and `terraform apply` in the `dist` directory, just like you would on any terraform project
+Once we have the files generated, we can run `terraform init` and `terraform apply` in the `dist` directory, just like you would on any terraform project.
 ```bash
 cd dist
 terraform init
 terraform apply -auto-approve
 ```
 
+This is the "manual" way of doing it, we can avoid running anything ourselves by using the `barbe apply` command. 
+
+### Using `barbe apply`
+
+The `barbe apply` command generates all our files, then runs all the commands necessary to deploy the project.
+
+Because we use [Docker/Buildkit](https://github.com/moby/buildkit) internally, you don't even need to have `terraform` installed on your machine!
+This also means it's really easy to run `barbe apply` in a CI/CD pipeline without having to install a bunch of dependencies.
+
+Using Buildkit also means just like when you use `docker`, you might need to use `sudo` to run `barbe apply` on your computer, depending on your setup.
+
+```bash
+[sudo] barbe apply config.hcl --output dist
+```
+
+> Note: using `barbe apply` without a proper state store configured on your terraform project can lead to problems, try out [state_store](./references/state_store.md) to make that problem vanish. 
+> We'll talk about that later in the guide.
+
 ### Default blocks and name prefix
 
 Most of the time in projects, all our lambda functions will use the same runtime, memory, or even handler. 
-Instead of copy-pasting these parameters every time, we can use the `default` block to set them for all our lambda functions.
+Instead of copy-pasting these parameters every time, we can use the [`default` block](./default-blocks.md) to set them for all our lambda functions.
 
 ```hcl
 # config.hcl
@@ -120,7 +120,7 @@ aws_function "read-item" {
 In the snippet above, we added a `default` block, everything in that block will be applied to all other Barbe-serverless constructs in the project, this includes our `aws_function` blocks.
 We also added a new function, since both our functions use the same javascript bundle, we can just change the value of `handler` to tell AWS which javascript function to execute.
 
-You might have noticed, I snuck a little `name_prefix` on the `default` block. This is what allows us to deploy multiple environments, 
+You might have noticed, I snuck in a little `name_prefix` on the `default` block. This is what allows us to deploy multiple environments, 
 the `name_prefix` is a string that will go in front of the name of the resources, so changing it is will give us the same template but with differently named resources.
 
 You can go further and use an environment variable in the `name_prefix` to make it dynamic, for example:
@@ -141,6 +141,7 @@ aws_dynamodb "item-store" {
 ```
 
 That's all we need for a basic table, if we update the code in our Lambda function, we can insert and delete items from the table right away.
+
 We can get a little fancy by adding a TTL key and autoscaling to our table.
 ```hcl
 aws_dynamodb "item-store" {
@@ -155,16 +156,15 @@ aws_dynamodb "item-store" {
 ```
 
 One last thing we can add to make managing the Terraform state easier is a [`state_store`](./references/state_store.md) block.
+This will create (or use an existing with `existing_bucket`) S3 bucket to store the Terraform state, and automatically configure terraform to use it.
 ```hcl
 state_store {
   s3 {}
 }
 ```
 
-After adding this, running `barbe generate` will ask if you want to create a bucket with a name based on your `name_prefix`. 
-Once created, the bucket will automatically be used by terraform to store the state of your project. 
-You can also use an existing bucket by specifying its name under `existing_bucket`.
 
-That's it for this getting started, here are a few links you can use next
+That's it for this getting started guide, here are a few links you can use next
 - [The example projects directory](../examples)
 - [Explore the different constructs](./references)
+- [Integrating existing projects](./integrating-existing-projects.md)

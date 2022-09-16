@@ -28,6 +28,12 @@ local allDefaultTraversals = std.set(barbe.flatten(barbe.iterateAllBlocks(contai
 )), function(t) barbe.asStr(t));
 
 barbe.databags([
+    {
+        Name: "terraform_credentials",
+        Type: "aws_credentials_request",
+        Value: {}
+    },
+
     if std.objectHas(container, "default") then
         {
             Name: "defaults_traversal_map",
