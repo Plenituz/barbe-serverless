@@ -1,7 +1,7 @@
 # Barbe-serverless
 
 Barbe-serverless is a serverless application development solution that fits right in with you existing project. 
-Define DynamoDB tables, lambda functions, APIs and more, all batteries included, even extra ones for your other toys.
+Define DynamoDB tables, Lambda functions, APIs and more, all batteries included, even extra ones for your other toys.
 
 Here is a few problems Barbe-serverless solves for you:
 - Multi region is built in, change a string, change the region
