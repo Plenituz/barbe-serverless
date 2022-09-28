@@ -22,13 +22,18 @@ for_each "regions" {
   }
 }
 ```
-- Enhance your existing projects: pull values directly from your Cloudformation stack, Serverless Framework config, and more*. Best part is, you don't even need to have any of their CLI installed to do so.
+- Enhance your existing projects: use regular Terraform, pull values directly from your Cloudformation stack, Serverless Framework config, and more*. Best part is, you don't even need to have any of their CLI installed to do so.
 ```hcl
 aws_fargate_task "task-runner" {
   environment {
     S3_BUCKET = serverless_framework.custom.myBucketName
     DDB_TABLE = cloudformation("my-stack-${env.STAGE}").resources.MyTable.Properties.TableName
   }
+}
+resource "aws_route53_record" "client_domain" {
+  name = "example.com"
+  type = "CNAME"
+  // ...
 }
 ```
 - Always forget about updating your IAM roles? No worries spaghettis, we'll take care of it
