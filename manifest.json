@@ -15,7 +15,7 @@
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/be0338acaec34f3f386a9fddb4bd087662d1db3c/aws/dynamodb/aws_dynamodb.cue",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/be0338acaec34f3f386a9fddb4bd087662d1db3c/aws/aws_dynamodb.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/be0338acaec34f3f386a9fddb4bd087662d1db3c/aws/aws_kinesis.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/be0338acaec34f3f386a9fddb4bd087662d1db3c/aws/aws_lambda.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/be0338acaec34f3f386a9fddb4bd087662d1db3c/aws/aws_s3.jsonnet",
@@ -57,7 +57,7 @@
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/dynamodb/aws_dynamodb.cue",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_dynamodb.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_kinesis.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_lambda.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_s3.jsonnet",
