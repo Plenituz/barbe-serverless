@@ -222,7 +222,7 @@ local defineRole(label, namePrefix, assumableBy) =
 
 barbe.databags([
     if std.objectHas(container, "aws_function") || std.objectHas(container, "aws_fargate_task") then
-        std.trace("container has", defineRole("default", globalNamePrefix, null))
+        defineRole("default", globalNamePrefix, null)
     ,
 
     barbe.iterateAllBlocks(container, function(bag)
