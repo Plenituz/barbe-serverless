@@ -54,7 +54,7 @@ local allCfTemplateStackNames = std.set([
 barbe.databags([
     [
         {
-            Type: "buildkit_run_in_container_transform",
+            Type: "buildkit_run_in_container",
             Name: "cloudformation_output_getter_" + stackName,
             Value: {
                 local formatterScriptPy = |||
@@ -110,7 +110,7 @@ barbe.databags([
     ],
     [
             {
-                Type: "buildkit_run_in_container_transform",
+                Type: "buildkit_run_in_container",
                 Name: "cloudformation_template_getter_" + stackName,
                 Value: {
                     local formatterScriptPy = |||

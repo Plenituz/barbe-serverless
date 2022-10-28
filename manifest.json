@@ -2,7 +2,7 @@
     "latest": "0.0.2",
     "versions": {
         "0.0.2": {
-            "steps": [
+            "transform": [
                 {
                     "templates": [
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/for_each.jsonnet"
@@ -23,7 +23,6 @@
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_fargate_task.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_reader.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_reader.jsonnet"
-
                     ]
                 },
                 {
@@ -33,12 +32,20 @@
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/provider.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/state_store.jsonnet",
                         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_applier.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_applier.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_applier.jsonnet",
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/request_tf_apply.jsonnet"
+                    ]
+                }
+            ],
+            "apply": [
+                {
+                    "templates": [
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/state_store_create_bucket.jsonnet"
                     ]
                 },
                 {
                     "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/terraform_apply.jsonnet"
+                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/terraform_execute.jsonnet"
                     ]
                 }
             ]

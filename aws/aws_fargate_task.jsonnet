@@ -1,7 +1,12 @@
 
 local barbe = std.extVar("barbe");
+local env = std.extVar("env");
 local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
+
+assert std.objectHas(container, "aws_credentials") : "No AWS credentials found";
+assert std.objectHas(container.aws_credentials, "terraform_credentials") : "No AWS credentials found with name 'terraform_credentials', most likely the manifest has been tampered with";
+local awsCredentials = barbe.asVal(container.aws_credentials.terraform_credentials[0].Value);
 
 local applyRegionProvider(fullBlock, bags) =
     if !std.objectHas(fullBlock, "region") then
@@ -107,6 +112,28 @@ barbe.databags([
                 Type: "cr_aws_ecs_cluster",
                 Value: {
                     name: barbe.appendToTemplate(namePrefix, [barbe.asSyntax(labels[0] + "-cluster")]),
+                }
+            },
+            {
+                Type: "buildkit_run_in_container",
+                Name: labels[0] + "_fargate_docker_build",
+                Value: {
+                    no_cache: true,
+                    dockerfile: |||
+                        FROM hashicorp/terraform:%(tf_version)s
+                        COPY --from=src ./ /src
+                        WORKDIR /src/%(output_dir)s
+
+                        RUN terraform output -json > terraform_output.json
+                    ||| % {
+                        tf_version: "latest",
+                        output_dir: std.extVar("barbe_output_dir"),
+                        access_key_id: barbe.asStr(awsCredentials.access_key_id),
+                        secret_access_key: barbe.asStr(awsCredentials.secret_access_key),
+                        session_token: barbe.asStr(awsCredentials.session_token),
+                        aws_region: std.get(env, "AWS_REGION", "us-east-1"),
+                    },
+                    exported_file: "terraform_output.json"
                 }
             },
             {

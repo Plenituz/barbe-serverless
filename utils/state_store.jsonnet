@@ -19,54 +19,21 @@ barbe.databags([
 
         if std.objectHas(fullBlock, "s3") then
             local madeBucketName = barbe.asStr(barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]));
-            [
-                if !std.objectHas(dotS3, "existing_bucket") then
-                    {
-                        Type: "buildkit_run_in_container_transform",
-                        Name: "s3_bucket_creator_" + madeBucketName,
-                        Value: {
-                            message: "Storing terraform state in S3 bucket '" + madeBucketName + "'",
-                            no_cache: true,
-                            dockerfile: |||
-                                FROM amazon/aws-cli:%(aws_cli_version)s
-
-                                ENV AWS_ACCESS_KEY_ID="%(access_key_id)s"
-                                ENV AWS_SECRET_ACCESS_KEY="%(secret_access_key)s"
-                                ENV AWS_SESSION_TOKEN="%(session_token)s"
-                                ENV AWS_REGION="%(aws_region)s"
-                                ENV AWS_PAGER=""
-
-                                RUN aws s3api create-bucket --bucket %(bucket_name)s --output json || true
-                            ||| % {
-                                //TODO version selection
-                                aws_cli_version: "latest",
-                                access_key_id: barbe.asStr(awsCredentials.access_key_id),
-                                secret_access_key: barbe.asStr(awsCredentials.secret_access_key),
-                                session_token: barbe.asStr(awsCredentials.session_token),
-                                aws_region: std.get(env, "AWS_REGION", "us-east-1"),
-                                bucket_name: madeBucketName,
-                            },
-                        }
-                    }
-                else
-                    []
-                ,
-                {
-                    Name: "",
-                    Type: "cr_[terraform]",
-                    Value: {
-                        backend: barbe.asBlock([{
-                            labels: ["s3"],
-                            bucket: std.get(dotS3, "existing_bucket", madeBucketName),
-                            key: barbe.appendToTemplate(
-                                std.get(dotS3, "prefix", barbe.asSyntax("")),
-                                [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
-                            ),
-                            region: std.get(dotS3, "region", "us-east-1")
-                        }])
-                    }
+            {
+                Name: "",
+                Type: "cr_[terraform]",
+                Value: {
+                    backend: barbe.asBlock([{
+                        labels: ["s3"],
+                        bucket: std.get(dotS3, "existing_bucket", madeBucketName),
+                        key: barbe.appendToTemplate(
+                            std.get(dotS3, "prefix", barbe.asSyntax("")),
+                            [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
+                        ),
+                        region: std.get(dotS3, "region", "us-east-1")
+                    }])
                 }
-            ]
+            }
         else
             []
         ,

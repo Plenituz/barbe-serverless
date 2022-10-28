@@ -52,7 +52,7 @@ barbe.databags([
         fs.writeFileSync('sls_framework.json', JSON.stringify(formattedOutput))
     ||| % {slsDirHash: slsDirHash};
     {
-        Type: "buildkit_run_in_container_transform",
+        Type: "buildkit_run_in_container",
         Name: "sls_framework_getter_" + slsDirHash,
         Value: {
             //TODO make a dockerfile on the hub for this
@@ -70,8 +70,8 @@ barbe.databags([
 
                 RUN npm install -g serverless@%(sls_version)s
 
-                COPY --from=src ./ /src
-                WORKDIR /src/%(dir)s
+                COPY --from=src ./%(dir)s /src
+                WORKDIR /src
                 RUN rm -rf node_modules
 
                 ENV AWS_ACCESS_KEY_ID="%(access_key_id)s"
