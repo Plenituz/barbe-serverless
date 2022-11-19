@@ -44,7 +44,7 @@ barbe.databags([
     barbe.iterateAllBlocks(container, function(bag)
         local block = barbe.asVal(bag.Value);
         local labels = barbe.flatten([bag.Name, bag.Labels]);
-        if std.length(std.findSubstr("provider", bag.Type)) > 0 then
+        if std.length(std.findSubstr("provider", bag.Type)) > 0 && std.length(std.findSubstr("cr_[provider", bag.Type)) == 0 then
             {
                 Name: labels[0],
                 Type: "cr_[" + bag.Type + "]",

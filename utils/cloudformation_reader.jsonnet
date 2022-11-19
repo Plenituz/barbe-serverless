@@ -52,7 +52,6 @@ barbe.pipelines([{
             },
         ]),
         function(container) barbe.databags([
-            local awsCredentials = barbe.asVal(container.aws_credentials.cloudformation_reader_credentials[0].Value);
             [
                 {
                     Type: "buildkit_run_in_container",
@@ -89,6 +88,7 @@ barbe.pipelines([{
                             RUN printf %(formatter_script_py)s > formatter.py
                             RUN python formatter.py
                         ||| % {
+                            local awsCredentials = barbe.asVal(container.aws_credentials.cloudformation_reader_credentials[0].Value),
                             //TODO version selection
                             aws_cli_version: "latest",
                             access_key_id: barbe.asStr(awsCredentials.access_key_id),
@@ -141,6 +141,7 @@ barbe.pipelines([{
                             RUN printf %(formatter_script_py)s > formatter.py
                             RUN python formatter.py
                         ||| % {
+                            local awsCredentials = barbe.asVal(container.aws_credentials.cloudformation_reader_credentials[0].Value),
                             //TODO version selection
                             aws_cli_version: "latest",
                             access_key_id: barbe.asStr(awsCredentials.access_key_id),

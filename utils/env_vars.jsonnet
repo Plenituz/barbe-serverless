@@ -17,12 +17,13 @@ local allEnvVarNames = std.set(barbe.flatten(std.set(barbe.iterateAllBlocks(cont
 ))));
 
 barbe.databags([
-    {
-        Name: "env_traversal_transform",
-        Type: "traversal_map",
-        Value: {
-            ["env." + varName]: std.get(env, varName, error "<showuser>environment variable '" + varName + "' not found</showuser>"),
-            for varName in allEnvVarNames
+    if std.length(allEnvVarNames) > 0 then
+        {
+            Name: "env_traversal_transform",
+            Type: "traversal_map",
+            Value: {
+                ["env." + varName]: std.get(env, varName, error "<showuser>environment variable '" + varName + "' not found</showuser>"),
+                for varName in allEnvVarNames
+            }
         }
-    },
 ])
