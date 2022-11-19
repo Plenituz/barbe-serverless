@@ -1,86 +1,20 @@
 {
-    "latest": "0.0.2",
-    "versions": {
-        "0.0.2": {
-            "transform": [
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/for_each.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/passthrough.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/dynamodb/aws_dynamodb.cue",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_kinesis.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_lambda.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_s3.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_http_api.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_fargate_task.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_reader.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_reader.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_base.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/aws/aws_iam.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/provider.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/state_store.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/sls_framework_applier.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/cloudformation_applier.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/request_tf_apply.jsonnet"
-                    ]
-                }
-            ],
-            "apply": [
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/state_store_create_bucket.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/?/utils/terraform_execute.jsonnet"
-                    ]
-                }
-            ]
-        },
-        "0.0.1": {
-            "steps": [
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/for_each.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/passthrough.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/dynamodb/aws_dynamodb.cue",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_kinesis.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_lambda.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_s3.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_http_api.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_fargate_task.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_base.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/aws/aws_iam.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/provider.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/19c50985cf83c6081ce19322a23eaacf30d9ac72/utils/state_store.jsonnet"
-                    ]
-                }
-            ]
-        }
-    }
+    "components": [
+        "https://hub.maplecone.com/barbe-serverless/aws_base/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_dynamodb/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_fargate_task/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_http_api/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_iam/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_kinesis/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_lambda/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_provider/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/aws_s3/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/cloudformation_reader/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/default_block_traversals/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/env_vars/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/for_each/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/sls_framework_reader/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/state_store/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/terraform_passthrough/v0.0.3/.jsonnet"
+    ]
 }
