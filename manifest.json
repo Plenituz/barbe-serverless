@@ -15,6 +15,7 @@
         "https://hub.maplecone.com/barbe-serverless/for_each/v0.0.3/.jsonnet",
         "https://hub.maplecone.com/barbe-serverless/sls_framework_reader/v0.0.3/.jsonnet",
         "https://hub.maplecone.com/barbe-serverless/state_store/v0.0.3/.jsonnet",
-        "https://hub.maplecone.com/barbe-serverless/terraform_passthrough/v0.0.3/.jsonnet"
+        "https://hub.maplecone.com/barbe-serverless/terraform_passthrough/v0.0.3/.jsonnet",
+        "https://hub.maplecone.com/barbe-serverless/default_terraform/v0.0.3/.jsonnet"
     ]
 }
