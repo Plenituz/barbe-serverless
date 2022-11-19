@@ -1,18 +1,5 @@
-/*
-    this component turns all traversals that start with `default` into the values that are present in the `default` blocks
-
-    Example:
-    default {
-        hello = "world"
-    }
-
-    v = default.hello
-    // v is now "world"
-*/
-
 local barbe = std.extVar("barbe");
 local container = std.extVar("container");
-
 
 local allDefaultTraversals = std.set(barbe.flatten(barbe.iterateAllBlocks(container, function(bag)
     local keepTokens(token) =
