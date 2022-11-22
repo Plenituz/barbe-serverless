@@ -3,6 +3,23 @@ local env = std.extVar("env");
 local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
 
+local isSimpleTemplate(token) =
+    if token.Type == "literal_value" then
+        true
+    else if token.Type != "template" then
+        false
+    else
+        !std.member([
+            if part.Type == "literal_value" then
+                true
+            else if part.Type == "template" then
+                isSimpleTemplate(part)
+            else
+                false
+            for part in token.Parts
+        ], false)
+    ;
+
 barbe.pipelines([{
     generate: [
         function(container) barbe.databags([
@@ -13,24 +30,30 @@ barbe.pipelines([{
                 local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
                 local namePrefix = barbe.concatStrArr(std.get(fullBlock, "name_prefix", barbe.asSyntax([""])));
                 local dotS3 = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "s3", barbe.asSyntax([])).ArrayConst));
+                local bucketNameTemplate = barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]);
 
-                if std.objectHas(fullBlock, "s3") then
-                    local madeBucketName = barbe.asStr(barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]));
+                //if there is an env var or something in the name, this component might get called before the env var was baked in
+                if !isSimpleTemplate(bucketNameTemplate) then
+                    //TODO message + delete message if found?
+                    //cause right now this will just fail silently if the user put a dynamic value in the bucket name
+                    null
+                else if std.objectHas(fullBlock, "s3") then
+                    local madeBucketName = barbe.asStr(bucketNameTemplate);
                     {
-                        Name: "",
-                        Type: "cr_[terraform]",
-                        Value: {
-                            backend: barbe.asBlock([{
-                                labels: ["s3"],
-                                bucket: std.get(dotS3, "existing_bucket", madeBucketName),
-                                key: barbe.appendToTemplate(
-                                    std.get(dotS3, "prefix", barbe.asSyntax("")),
-                                    [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
-                                ),
-                                region: std.get(dotS3, "region", "us-east-1")
-                            }])
-                        }
-                    }
+                         Name: "",
+                         Type: "cr_[terraform]",
+                         Value: {
+                             backend: barbe.asBlock([{
+                                 labels: ["s3"],
+                                 bucket: std.get(dotS3, "existing_bucket", madeBucketName),
+                                 key: barbe.appendToTemplate(
+                                     std.get(dotS3, "prefix", barbe.asSyntax("")),
+                                     [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
+                                 ),
+                                 region: std.get(dotS3, "region", "us-east-1")
+                             }])
+                         }
+                     }
                 else
                     []
                 ,
@@ -56,9 +79,15 @@ barbe.pipelines([{
                 local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
                 local namePrefix = barbe.concatStrArr(std.get(fullBlock, "name_prefix", barbe.asSyntax([""])));
                 local dotS3 = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "s3", barbe.asSyntax([])).ArrayConst));
+                local bucketNameTemplate = barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]);
 
-                if std.objectHas(fullBlock, "s3") then
-                    local madeBucketName = barbe.asStr(barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]));
+                //if there is an env var or something in the name, this component might get called before the env var was baked in
+                if !isSimpleTemplate(bucketNameTemplate) then
+                    //TODO message + delete message if found?
+                    //cause right now this will just fail silently if the user put a dynamic value in the bucket name
+                    std.trace(bucketNameTemplate+"", null)
+                else if std.objectHas(fullBlock, "s3") then
+                    local madeBucketName = barbe.asStr(bucketNameTemplate);
                     [
                         if !std.objectHas(dotS3, "existing_bucket") then
                             {
