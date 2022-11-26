@@ -2,6 +2,7 @@ local barbe = std.extVar("barbe");
 local env = std.extVar("env");
 local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
+local state = std.get(container, "barbe_state", {});
 
 local isSimpleTemplate(token) =
     if token.Type == "literal_value" then
@@ -85,12 +86,12 @@ barbe.pipelines([{
                 if !isSimpleTemplate(bucketNameTemplate) then
                     //TODO message + delete message if found?
                     //cause right now this will just fail silently if the user put a dynamic value in the bucket name
-                    std.trace(bucketNameTemplate+"", null)
+                    null
                 else if std.objectHas(fullBlock, "s3") then
                     local madeBucketName = barbe.asStr(bucketNameTemplate);
                     [
-                        if !std.objectHas(dotS3, "existing_bucket") then
-                            {
+                        if !std.objectHas(state, "bucket_created_" + madeBucketName) && !std.objectHas(dotS3, "existing_bucket") then
+                            [{
                                 Type: "buildkit_run_in_container",
                                 Name: "s3_bucket_creator_" + madeBucketName,
                                 Value: {
@@ -116,7 +117,12 @@ barbe.pipelines([{
                                         bucket_name: madeBucketName,
                                     },
                                 }
-                            }
+                            },
+                            {
+                                Type: "barbe_state_set",
+                                Name: "bucket_created_" + madeBucketName,
+                                Value: true,
+                            }]
                         else
                             []
                         ,

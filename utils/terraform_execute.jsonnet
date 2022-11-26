@@ -3,15 +3,22 @@ local env = std.extVar("env");
 local container = std.extVar("container");
 local barbeOutputDir = std.extVar("barbe_output_dir");
 
+
+local trimPrefix(str, chars) =
+    if std.startsWith(str, chars) then
+        str[std.length(chars):]
+    else
+        str
+;
+
 local removeBarbeOutputPrefix(path) =
     if std.startsWith(path, barbeOutputDir + "/") then
-        std.lstripChars(path, barbeOutputDir + "/")
+        trimPrefix(path, barbeOutputDir + "/")
     else if std.startsWith(path, barbeOutputDir) then
-        std.lstripChars(path, barbeOutputDir)
+        trimPrefix(path, barbeOutputDir)
     else
         path
     ;
-
 
 local pipeline = [
     function(container) barbe.databags([
