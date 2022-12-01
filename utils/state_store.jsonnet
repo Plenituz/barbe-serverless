@@ -2,7 +2,7 @@ local barbe = std.extVar("barbe");
 local env = std.extVar("env");
 local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
-local state = std.get(container, "barbe_state", {});
+local state = std.extVar("state");
 
 local isSimpleTemplate(token) =
     if token.Type == "literal_value" then
@@ -90,7 +90,7 @@ barbe.pipelines([{
                 else if std.objectHas(fullBlock, "s3") then
                     local madeBucketName = barbe.asStr(bucketNameTemplate);
                     [
-                        if !std.objectHas(state, "bucket_created_" + madeBucketName) && !std.objectHas(dotS3, "existing_bucket") then
+                        if !std.objectHas(dotS3, "existing_bucket") && !std.objectHas(state, "state_store_s3_bucket_created") || !std.objectHas(state.state_store_s3_bucket_created, madeBucketName) then
                             [{
                                 Type: "buildkit_run_in_container",
                                 Name: "s3_bucket_creator_" + madeBucketName,
@@ -119,9 +119,11 @@ barbe.pipelines([{
                                 }
                             },
                             {
-                                Type: "barbe_state_set",
-                                Name: "bucket_created_" + madeBucketName,
-                                Value: true,
+                                Type: "barbe_state(put_in_object)",
+                                Name: "state_store_s3_bucket_created",
+                                Value: {
+                                    [madeBucketName]: true,
+                                },
                             }]
                         else
                             []
