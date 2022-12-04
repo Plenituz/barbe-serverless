@@ -40,21 +40,35 @@ barbe.pipelines([{
                     null
                 else if std.objectHas(fullBlock, "s3") then
                     local madeBucketName = barbe.asStr(bucketNameTemplate);
-                    {
-                         Name: "",
-                         Type: "cr_[terraform]",
-                         Value: {
-                             backend: barbe.asBlock([{
-                                 labels: ["s3"],
-                                 bucket: std.get(dotS3, "existing_bucket", madeBucketName),
-                                 key: barbe.appendToTemplate(
-                                     std.get(dotS3, "prefix", barbe.asSyntax("")),
-                                     [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
-                                 ),
-                                 region: std.get(dotS3, "region", "us-east-1")
-                             }])
-                         }
-                     }
+                    [
+                        {
+                            Name: "",
+                            Type: "cr_[terraform]",
+                            Value: {
+                                backend: barbe.asBlock([{
+                                    labels: ["s3"],
+                                    bucket: std.get(dotS3, "existing_bucket", madeBucketName),
+                                    key: barbe.appendToTemplate(
+                                        std.get(dotS3, "prefix", barbe.asSyntax("")),
+                                        [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
+                                    ),
+                                    region: std.get(dotS3, "region", "us-east-1")
+                                }])
+                            }
+                        },
+                        {
+                            Name: "s3",
+                            Type: "barbe_state_store",
+                            Value: {
+                               bucket: madeBucketName,
+                               key: barbe.appendToTemplate(
+                                   std.get(dotS3, "prefix", barbe.asSyntax("")),
+                                   [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("barbe_state.json")]))]
+                               ),
+                               region: std.get(dotS3, "region", "us-east-1")
+                            }
+                        }
+                     ]
                 else
                     []
                 ,
