@@ -16,7 +16,9 @@ local allEnvVarNames = std.set(barbe.flatten(std.set(barbe.iterateAllBlocks(cont
     varNames
 ))));
 
-barbe.databags([
+
+local makePipeline() = [
+    function(container) barbe.databags([
     if std.length(allEnvVarNames) > 0 then
         {
             Name: "env_traversal_transform",
@@ -26,4 +28,10 @@ barbe.databags([
                 for varName in allEnvVarNames
             }
         }
-])
+    ])
+];
+
+barbe.pipelines([{
+    pre_generate: makePipeline(),
+    post_generate: makePipeline(),
+}])

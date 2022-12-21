@@ -55,27 +55,13 @@ barbe.pipelines([{
                                     region: std.get(dotS3, "region", "us-east-1")
                                 }])
                             }
-                        },
-                        {
-                            Name: "s3",
-                            Type: "barbe_state_store",
-                            Value: {
-                               bucket: madeBucketName,
-                               key: barbe.appendToTemplate(
-                                   std.get(dotS3, "prefix", barbe.asSyntax("")),
-                                   [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("barbe_state.json")]))]
-                               ),
-                               region: std.get(dotS3, "region", "us-east-1")
-                            }
                         }
                      ]
                 else
                     []
                 ,
             ),
-        ])
-    ],
-    apply: [
+        ]),
         function(container) barbe.databags([
             {
                 Name: "state_store_credentials",
@@ -147,7 +133,47 @@ barbe.pipelines([{
                     []
                 ,
             ),
-        ])
-    ]
+        ]),
+        function(container) barbe.databags([
+            barbe.iterateBlocks(container, "state_store", function(bag)
+                assert std.objectHas(container, "aws_credentials") : "No AWS credentials found";
+                assert std.objectHas(container.aws_credentials, "state_store_credentials") : "No AWS credentials found with name 'state_store_credentials', something is seriously wrong";
+                local awsCredentials = barbe.asVal(container.aws_credentials.state_store_credentials[0].Value);
+                local block = barbe.asVal(bag.Value);
+                local labels = barbe.flatten([bag.Name, bag.Labels]);
+                local blockDefaults = barbe.makeBlockDefault(container, globalDefaults, block);
+                local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
+                local namePrefix = barbe.concatStrArr(std.get(fullBlock, "name_prefix", barbe.asSyntax([""])));
+                local dotS3 = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "s3", barbe.asSyntax([])).ArrayConst));
+                local bucketNameTemplate = barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]);
 
+                //if there is an env var or something in the name, this component might get called before the env var was baked in
+                if !isSimpleTemplate(bucketNameTemplate) then
+                    null
+                else if std.objectHas(fullBlock, "s3") then
+                    local madeBucketName = barbe.asStr(bucketNameTemplate);
+                    [
+                        if !std.objectHas(dotS3, "existing_bucket") then
+                            {
+                                Name: "s3",
+                                Type: "barbe_state_store",
+                                Value: {
+                                bucket: madeBucketName,
+                                key: barbe.appendToTemplate(
+                                    std.get(dotS3, "prefix", barbe.asSyntax("")),
+                                    [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("barbe_state.json")]))]
+                                ),
+                                region: std.get(dotS3, "region", "us-east-1")
+                                }
+                            }
+                        else
+                            []
+                        ,
+                    ]
+                else
+                    []
+                ,
+            ),
+        ])
+    ],
 }])

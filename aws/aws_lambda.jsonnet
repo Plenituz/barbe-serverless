@@ -55,24 +55,42 @@ barbe.databags([
         local dotPackage = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "package", barbe.asSyntax([])).ArrayConst));
         local dotEnvironment = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "environment", barbe.asSyntax([])).ArrayConst));
         local dotProvisionedConc = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "provisioned_concurrency", barbe.asSyntax([])).ArrayConst));
+        local packageLocation = 
+            if std.objectHas(dotPackage, "packaged_file") then
+                dotPackage.packaged_file
+            else
+                ".package/" + labels[0] + "_lambda_package.zip"
+            ;
         barbe.flatten([
             {
                 Name: labels[0] + "_aws_function_traversal_transform",
                 Type: "traversal_transform",
                 Value: {
                     ["aws_function." + labels[0]]: "aws_lambda_function." + labels[0] + "_lambda",
+                    ["aws_function." + labels[0] + ".function_url"]: "aws_lambda_function_url." + labels[0] + "_lambda_url.function_url",
                 }
             },
-            {
-                Name: labels[0] + "_lambda_package",
-                Type: "zipper",
-                Value: {
-                    output_file: cloudResourceDirStrPrefix + ".package/" + labels[0] + "_lambda_package.zip",
-                    file_map: std.get(dotPackage, "file_map", {}),
-                    include: std.get(dotPackage, "include", []),
-                    exclude: std.get(dotPackage, "exclude", []),
-                }
-            },
+            cloudResource("aws_s3_bucket", "deployment_bucket", {
+                bucket: barbe.appendToTemplate(namePrefix, [barbe.asSyntax("deploy-bucket")]),
+                force_destroy: true,
+            }),
+            if !std.objectHas(dotPackage, "packaged_file") then
+                {
+                    Name: labels[0] + "_" + cloudResourceId + cloudResourceDir + "_lambda_package",
+                    Type: "zipper",
+                    Value: {
+                        output_file: cloudResourceDirStrPrefix + ".package/" + labels[0] + "_lambda_package.zip",
+                        file_map: std.get(dotPackage, "file_map", {}),
+                        include: std.get(dotPackage, "include", []),
+                        exclude: std.get(dotPackage, "exclude", []),
+                    }
+                },
+            cloudResource("aws_s3_object", labels[0] + "_package", {
+                bucket: barbe.asTraversal("aws_s3_bucket.deployment_bucket.id"),
+                key: barbe.appendToTemplate(namePrefix, [labels[0] + "_lambda_package.zip"]),
+                source: packageLocation,
+                etag: barbe.asFuncCall("filemd5", [packageLocation]),
+            }),
             cloudData("aws_caller_identity", "current", {}),
             cloudResource("aws_lambda_function", labels[0] + "_lambda", {
                 function_name: barbe.appendToTemplate(namePrefix, [barbe.asSyntax(labels[0])]),
@@ -87,8 +105,9 @@ barbe.databags([
                 role: std.get(fullBlock, "role", barbe.asTraversal("aws_iam_role.default_lambda_role.arn")),
                 architectures: [std.get(fullBlock, "architecture", "x86_64")],
                 layers: std.get(fullBlock, "layers", null),
-                filename: ".package/" + labels[0] + "_lambda_package.zip",
-                source_code_hash: barbe.asFuncCall("filebase64sha256", [".package/" + labels[0] + "_lambda_package.zip"]),
+                s3_bucket: barbe.asTraversal("aws_s3_bucket.deployment_bucket.id"),
+                s3_key: barbe.asTraversal("aws_s3_object." + labels[0] + "_package.id"),
+                source_code_hash: barbe.asFuncCall("filebase64sha256", [packageLocation]),
 
                 // "architectures" causes a re-deploys even when unchanged, so we kind of have to add this
                 // this technically forces users to delete/recreate lambda functions if they change the architecture
@@ -107,6 +126,12 @@ barbe.databags([
                         null
                     ,
             }),
+            if barbe.asVal(std.get(fullBlock, "function_url_enabled", barbe.asSyntax(false))) then
+                cloudResource("aws_lambda_function_url", labels[0] + "_lambda_url", {
+                    function_name: barbe.asTraversal("aws_lambda_function." + labels[0] + "_lambda.function_name"),
+                    authorization_type: "NONE",
+                }),
+
             cloudResource("aws_cloudwatch_log_group", labels[0] + "_lambda_logs", {
                 name: barbe.asTemplate([
                     "/aws/lambda/",
