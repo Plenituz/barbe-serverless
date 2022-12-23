@@ -64,16 +64,7 @@ barbe.pipelines([{
                     Type: "buildkit_run_in_container",
                     Name: "sls_framework_getter_" + slsDirHash,
                     Value: {
-                        //TODO make a dockerfile on the hub for this
-                        //TODO add a "printer" databag formatter that prints messages to the user
-                        message: std.join("\n", barbe.flatten([
-                            if !std.objectHas(env, "AWS_REGION") then
-                                "no AWS_REGION environment variable, defaulting to us-east-1"
-                            else
-                                []
-                            ,
-                            "Extracting serverless framework output from '" + dir + "'"
-                        ])),
+                        display_name: "Reading sls framework - " + dir,
                         dockerfile: |||
                             FROM node:%(node_version)s-alpine
 

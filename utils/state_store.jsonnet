@@ -95,6 +95,7 @@ barbe.pipelines([{
                                 Type: "buildkit_run_in_container",
                                 Name: "s3_bucket_creator_" + madeBucketName,
                                 Value: {
+                                    display_name: "Creating state_store S3 bucket - " + madeBucketName,
                                     message: "Storing terraform state in S3 bucket '" + madeBucketName + "'",
                                     no_cache: true,
                                     dockerfile: |||

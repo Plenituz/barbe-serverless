@@ -43,6 +43,7 @@ local pipeline = [
                 Name: "terraform_empty_" + mode + "_" + bag.Name,
                 Value: {
                     require_confirmation: std.get(block, "require_confirmation", null),
+                    display_name: std.get(block, "display_name", null),
                     message: std.get(block, "message", null),
                     no_cache: true,
                     dockerfile: |||
@@ -120,6 +121,7 @@ local pipeline = [
                 Name: "terraform_" + mode + "_" + bag.Name,
                 Value: {
                     require_confirmation: std.get(block, "require_confirmation", null),
+                    display_name: std.get(block, "display_name", null),
                     message: std.get(block, "message", null),
                     no_cache: true,
                     dockerfile: |||

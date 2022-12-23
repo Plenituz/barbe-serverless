@@ -98,6 +98,7 @@ barbe.pipelines([{
                             formatter_script_py: std.escapeStringJson(formatterScriptPy),
                             stack_name: stackName,
                         },
+                        display_name: "Reading Cloudformation output - " + stackName,
                         no_cache: true,
                         exported_files: {
                             "cloudformation_output.json": "cloudformation_output_" + stackName + ".json"
@@ -151,6 +152,7 @@ barbe.pipelines([{
                             formatter_script_py: std.escapeStringJson(formatterScriptPy),
                             stack_name: stackName,
                         },
+                        display_name: "Reading Cloudformation template - " + stackName,
                         no_cache: true,
                         exported_files: {
                             "cloudformation_resources.json": "cloudformation_resources_" + stackName + ".json"
