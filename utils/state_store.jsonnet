@@ -151,7 +151,7 @@ local steps = [
                 ]
             else if std.objectHas(fullBlock, "gcs") then
                 local madeBucketName = barbe.asStr(bucketNameTemplate);
-                local gcpProject = std.get(dotGcs, "project", std.get(env, "CLOUDSDK_CORE_PROJECT", null));
+                local gcpProject = std.get(dotGcs, "project_id", std.get(fullBlock, "project_id", std.get(env, "CLOUDSDK_CORE_PROJECT", null)));
                 [
                     if isSimpleTemplate(gcpProject) && !std.objectHas(dotGcs, "existing_bucket") && !std.objectHas(state, "state_store_gcs_bucket_created") || !std.objectHas(state.state_store_gcs_bucket_created, madeBucketName) then
                         [{
