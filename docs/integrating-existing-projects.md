@@ -14,8 +14,6 @@ serverless_framework("./other-project").resources.Resources.MyBucket.Properties.
 
 Here is example of Terraform pulling from Cloudformation on a full project: [here](../examples/terraform_%3C3_cloudformation)
 
-For now let's take a closer look at the syntax
-
 ### `cloudformation(stackName)`
 
 This function can give you access to 2 things

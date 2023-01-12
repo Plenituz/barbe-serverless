@@ -30,6 +30,7 @@ local steps = [
             local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
             local namePrefix = barbe.concatStrArr(std.get(fullBlock, "name_prefix", barbe.asSyntax([""])));
             local dotS3 = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "s3", barbe.asSyntax([])).ArrayConst));
+            local dotGcs = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "gcs", barbe.asSyntax([])).ArrayConst));
             local bucketNameTemplate = barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state-store")]);
 
             //if there is an env var or something in the name, this component might get called before the env var was baked in
@@ -62,10 +63,10 @@ local steps = [
                     Value: {
                         backend: barbe.asBlock([{
                             labels: ["gcs"],
-                            bucket: std.get(dotS3, "existing_bucket", madeBucketName),
+                            bucket: std.get(dotGcs, "existing_bucket", madeBucketName),
                             prefix: barbe.appendToTemplate(
-                                std.get(dotS3, "prefix", barbe.asSyntax("")),
-                                [std.get(dotS3, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
+                                std.get(dotGcs, "prefix", barbe.asSyntax("")),
+                                [std.get(dotGcs, "key", barbe.appendToTemplate(namePrefix, [barbe.asSyntax("state.tfstate")]))]
                             ),
                         }])
                     }

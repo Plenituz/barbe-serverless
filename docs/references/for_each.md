@@ -1,6 +1,6 @@
 # for_each
 
-This is a meta constructs that emits all elements of it's body several times, iterating over a given array.
+This is a "meta block" that emits all elements of it's body several times, iterating over a given array.
 
 ---
 

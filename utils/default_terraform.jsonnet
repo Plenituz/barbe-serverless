@@ -6,7 +6,7 @@ barbe.pipelines([{
             barbe.importComponent(
                 container,
                 "default_terraform",
-                "https://hub.maplecone.com/barbe-serverless/terraform_execute/v0.0.3/.jsonnet",
+                "https://hub.barbe.app/barbe-serverless/terraform_execute/v0.1.0/.jsonnet",
                 [],
                 [{
                     Type: "terraform_execute",
@@ -25,7 +25,7 @@ barbe.pipelines([{
             barbe.importComponent(
                 container,
                 "default_terraform",
-                "https://hub.maplecone.com/barbe-serverless/terraform_execute/v0.0.3/.jsonnet",
+                "https://hub.barbe.app/barbe-serverless/terraform_execute/v0.1.0/.jsonnet",
                 [],
                 [{
                     Type: "terraform_execute",
