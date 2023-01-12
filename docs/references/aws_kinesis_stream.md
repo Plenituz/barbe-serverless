@@ -1,6 +1,6 @@
 # aws_kinesis_stream
 
-Provide a Kinesis data stream. The main advantages of using this construct instead of a `aws_kinesis_stream` resource is the interaction with the `aws_dynamodb` and `aws_iam_lambda_role` constructs.
+Provide a Kinesis data stream. The main advantages of using this construct instead of a `aws_kinesis_stream` resource is the interaction with the `aws_dynamodb` and `aws_iam_lambda_role` blocks.
 
 Credit: Some of this documentation is inspired from these pages:
 - [AWS Kinesis stream](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kinesis_stream)

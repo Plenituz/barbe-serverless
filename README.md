@@ -36,7 +36,7 @@ resource "aws_route53_record" "client_domain" {
   // ...
 }
 ```
-- Always forget about updating your IAM roles? No worries spaghettis, we'll take care of it
+- Always forget about updating your IAM roles? No worries, we'll take care of it
 ```hcl
 aws_dynamodb "user-store" {
   //...

@@ -3,6 +3,11 @@ local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
 local globalNamePrefix = barbe.concatStrArr(std.get(globalDefaults, "name_prefix", barbe.asSyntax([""])));
 
+local cloudResourceAbstractFactory(dir, id) =
+    function(kind)
+    function(type, name, value)
+        barbe.cloudResourceRaw(dir, id, kind, type, name, value);
+
 
 // namePrefix should be a template
 local lambdaRoleStatement(namePrefix, roleName) =
@@ -143,12 +148,18 @@ local lambdaRoleStatement(namePrefix, roleName) =
             []
         ,
         if std.objectHas(container, "aws_iam_lambda_role") && std.objectHas(container.aws_iam_lambda_role, roleName) then
-            barbe.asVal(barbe.asVal(container.aws_iam_lambda_role[roleName][0]).statements)
+            local val = barbe.asVal(container.aws_iam_lambda_role[roleName][0].Value);
+            if std.objectHas(val, "statements") then
+                barbe.asVal(val.statements)
+            else
+                []
         else
             []
     ]);
 
-local defineRole(label, namePrefix, assumableBy) =
+local defineRole(cloudResourceKindFactory, label, namePrefix, assumableBy) =
+    local cloudResource = cloudResourceKindFactory("resource");
+    local cloudData = cloudResourceKindFactory("data");
     [
         {
             Name: label + "_iam_traversal_transform",
@@ -157,83 +168,101 @@ local defineRole(label, namePrefix, assumableBy) =
                 ["aws_iam_lambda_role." + label]: "aws_iam_role." + label + "_lambda_role"
             }
         },
-        {
-            Name: label + "_lambda_role",
-            Type: "cr_aws_iam_role",
-            Value: {
-                name: barbe.appendToTemplate(namePrefix, [barbe.asSyntax(label + "-role")]),
-                assume_role_policy: std.manifestJsonMinified({
-                    Version: "2012-10-17",
-                    Statement: [
-                        {
-                            Action: "sts:AssumeRole",
-                            Effect: "Allow",
-                            Sid: "",
-                            Principal: {
-                                local service = barbe.flatten([
-                                    if assumableBy != null then
-                                        barbe.asVal(assumableBy)
-                                    else
-                                        []
-                                    ,
-                                    if std.objectHas(container, "aws_function") then
-                                        "lambda.amazonaws.com"
-                                    else
-                                        []
-                                    ,
-                                    if std.objectHas(container, "aws_fargate_task") then
-                                        "ecs-tasks.amazonaws.com"
-                                    else
-                                        []
-                                ]),
-                                Service:
-                                    if std.length(service) == 0 then
-                                        "lambda.amazonaws.com"
-                                    else
-                                        service
-                            }
+        cloudData("aws_caller_identity", "current", {}),
+        cloudData("aws_partition", "current", {}),
+        cloudResource("aws_iam_role", label + "_lambda_role", {
+            name: barbe.appendToTemplate(namePrefix, [barbe.asSyntax(label + "-role")]),
+            assume_role_policy: std.manifestJsonMinified({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Action: "sts:AssumeRole",
+                        Effect: "Allow",
+                        Sid: "",
+                        Principal: {
+                            local service = barbe.flatten([
+                                if assumableBy != null then
+                                    barbe.asValArrayConst(assumableBy)
+                                else
+                                    []
+                                ,
+                                if std.objectHas(container, "aws_function") then
+                                    "lambda.amazonaws.com"
+                                else
+                                    []
+                                ,
+                                if std.objectHas(container, "aws_fargate_task") then
+                                    "ecs-tasks.amazonaws.com"
+                                else
+                                    []
+                            ]),
+                            Service:
+                                if std.length(service) == 0 then
+                                    "lambda.amazonaws.com"
+                                else
+                                    service
                         }
-                    ]
-                })
-            }
-        },
-        {
-            Name: label + "_lambda_role_policy",
-            Type: "cr_aws_iam_policy",
-            Value: {
-                name: barbe.appendToTemplate(globalNamePrefix, [barbe.asSyntax(label + "-role-policy")]),
-                description: "",
-                policy: barbe.asFuncCall("jsonencode", [{
-                    Version: "2012-10-17",
-                    Statement: lambdaRoleStatement(namePrefix, label)
-                }])
-            }
-        },
-        {
-            Name: label + "_lambda_role_policy_attachment",
-            Type: "cr_aws_iam_role_policy_attachment",
-            Value: {
-                role: barbe.asTraversal("aws_iam_role." + label + "_lambda_role.name"),
-                policy_arn: barbe.asTraversal("aws_iam_policy." + label + "_lambda_role_policy.arn")
-            }
-        }
+                    }
+                ]
+            })
+        }),
+        cloudResource("aws_iam_policy", label + "_lambda_role_policy", {
+            name: barbe.appendToTemplate(namePrefix, [barbe.asSyntax(label + "-role-policy")]),
+            description: "",
+            policy: barbe.asFuncCall("jsonencode", [{
+                Version: "2012-10-17",
+                Statement: lambdaRoleStatement(namePrefix, label)
+            }])
+        }),
+        cloudResource("aws_iam_role_policy_attachment", label + "_lambda_role_policy_attachment", {
+            role: barbe.asTraversal("aws_iam_role." + label + "_lambda_role.name"),
+            policy_arn: barbe.asTraversal("aws_iam_policy." + label + "_lambda_role_policy.arn")
+        })
     ];
 
 
 barbe.databags([
-    if std.objectHas(container, "aws_function") || std.objectHas(container, "aws_fargate_task") then
-        defineRole("default", globalNamePrefix, null)
-    ,
+    local allDirsTmp = barbe.iterateAllBlocks(container, function(bag)
+        if (bag.Type == "aws_function" || bag.Type == "aws_fargate_task") then
+            local block = barbe.asVal(bag.Value);
+            local blockDefaults = barbe.makeBlockDefault(container, globalDefaults, block);
+            local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
+            std.get(fullBlock, "cloudresource_dir", barbe.asSyntax("default"))
+        else
+            null
+    );
+    local allDirs = std.uniq([barbe.asStr(i) for i in allDirsTmp if i != null]);
+    [
+        local dir = 
+            if dirName == "default" then
+                null
+            else
+                barbe.asStr(dirName);
+        defineRole(
+            cloudResourceAbstractFactory(dir, dir),
+            "default",
+            if dir == null then globalNamePrefix else barbe.appendToTemplate(globalNamePrefix, [dir, "-"]),
+            null
+        )
+        for dirName in allDirs
+    ],
 
     barbe.iterateAllBlocks(container, function(bag)
         if bag.Type != "aws_iam_lambda_role" || bag.Name == "" then
             null
         else
             local block = barbe.asVal(bag.Value);
-            local labels = barbe.asValArrayConst(block.labels);
             local blockDefaults = barbe.makeBlockDefault(container, globalDefaults, block);
             local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
             local namePrefix = barbe.concatStrArr(std.get(fullBlock, "name_prefix", barbe.asSyntax([""])));
-            defineRole(labels[0], namePrefix, std.get(fullBlock, "assumable_by", null))
+            local dir = std.get(fullBlock, "cloudresource_dir", null);
+            local cloudResourceFactory = 
+                if dir == null then
+                    cloudResourceAbstractFactory(dir, dir)
+                else
+                    local d = barbe.asStr(dir);
+                    cloudResourceAbstractFactory(d, d)
+                ;
+            defineRole(cloudResourceFactory, bag.Name, namePrefix, std.get(fullBlock, "assumable_by", null))
     )
 ])

@@ -1,5 +1,5 @@
-
 local barbe = std.extVar("barbe");
+local env = std.extVar("env");
 local container = std.extVar("container");
 local globalDefaults = barbe.compileDefaults(container, "");
 

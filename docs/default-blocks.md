@@ -1,6 +1,6 @@
 # `default` and `global_default`
 
-Default blocks are a tool to help your configuration file readable and maintainable. 
+Default blocks are a tool to help you keep your configuration file more readable and maintainable.
 
 Every attribute or block defined on a `default` block will automatically be inherited by all other blocks on which the `default` block takes effect.
 ```hcl
@@ -43,18 +43,7 @@ aws_function "my-function-2" {
   runtime     = "go1.x"
   handler     = "handler"
   memory_size = 128
-  timeout     = 30
-}
-```
-
-`global_default` blocks are similar to the unnamed `default` block, except it applies to all the constructs in your template, even if they specify a `copy_from`.
-```hcl
-global_default {
-  runtime     = "go1.x"
-  handler     = "handler"
-  memory_size = 128
-  timeout     = 30
-}
+  timeout     = 30even if they specify a
 default "lambda-defaults" {
   
 }
