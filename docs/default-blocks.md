@@ -6,7 +6,7 @@ Every attribute or block defined on a `default` block will automatically be inhe
 ```hcl
 default {
   package {
-    exclude = ["dist/*"]
+    exclude = ["barbe_dist/*"]
   }
   runtime     = "go1.x"
   handler     = "handler"

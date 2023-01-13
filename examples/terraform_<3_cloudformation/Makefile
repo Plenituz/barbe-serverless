@@ -9,3 +9,7 @@ clean:
 deploy: clean build
 	aws cloudformation deploy --stack-name "tf-heart-cf" --template-file tf-heart-cf.cloudformation.json
 	sudo barbe apply config.hcl *.tf --output dist --log-level debug
+
+destroy:
+	aws cloudformation delete-stack --stack-name "tf-heart-cf"
+	sudo barbe destroy config.hcl *.tf --output dist --log-level debug

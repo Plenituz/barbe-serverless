@@ -47,12 +47,12 @@ exports.insertItem =  async function(event, context) { ... }
 Before we add more resources, let's deploy this project. We'll need the Barbe CLI, you can find the installation instructions [here](https://github.com/Plenituz/barbe/blob/main/docs/installation.md).
 Then we can run
 ```bash
-barbe generate config.hcl --output dist
+barbe generate config.hcl
 ```
 
 This will generate everything we need in the `dist` directory, let's take a look inside. Here is what was generated so far:
 ```
-dist/
+barbe_dist/
 ├── generated.tf
 └── .package
     └── insert-item_lambda_package.zip
@@ -66,7 +66,7 @@ We can also open the `.package/insert-item_lambda_package.zip` file and see that
 Running `barbe generate` is not required to deploy the project, that was just to show you what was generated.
 To actually deploy the project you can run
 ```bash
-barbe apply config.hcl --output dist
+barbe apply config.hcl
 ```
 
 This will generate the files, then run all the commands necessary to deploy, in our case that's just a `terraform apply` but for some project that might include pushing docker images to a registry, or running awscli commands.

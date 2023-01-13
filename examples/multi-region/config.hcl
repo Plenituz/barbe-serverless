@@ -10,7 +10,7 @@ default {
   # used by for_each and aws_dynamodb which supports multi region with replicas
   regions = ["us-west-1", "eu-west-3", "ap-northeast-2"]
   package {
-    exclude  = ["dist/*"]
+    exclude  = ["barbe_dist/*"]
     file_map = {
       "bin/*" = "handler"
     }
