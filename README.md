@@ -127,4 +127,3 @@ Otherwise, get started with the [installation](./docs/installation.md) and [guid
 ## Ideas? Essential feature missing? Just a question or some feedback?
 
 Feel free to open an issue for **any** reason, would love to hear from you!
-You can also send me cat pictures on twitter DM @pinezul

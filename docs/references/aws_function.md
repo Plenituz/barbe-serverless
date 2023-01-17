@@ -275,6 +275,7 @@ file_map = {
 
 &nbsp;&nbsp;&nbsp;&nbsp;`exclude` (Optional, list of string) A list of patterns or files to be excluded from the function's package, you can use the `*` wildcard to match a group of files
 
+&nbsp;&nbsp;&nbsp;&nbsp;`packaged_file` (Optional, string) If provided, disable the built in packaging, and use the value provided as the path to the function's package (it should be a zip file containing the function's code or binary)
 
 ---
 
