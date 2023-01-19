@@ -1,3 +1,5 @@
 *.zip
 .terraform
 .idea
+
+node_modules/

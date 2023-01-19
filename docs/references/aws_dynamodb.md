@@ -85,6 +85,8 @@ If a list is given, the first element is the primary region and the rest are the
 
 `name_prefix`: (Optional, string) Prefix appended to the bucket name
 
+`billing_mode`: (Optional, string) DynamoDB billing mode. `PAY_PER_REQUEST` or `PROVISIONED`. Defaults to `PROVISIONED`
+
 `read_capacity`: (Optional, number) The read capacity for the table. Defaults to 1
 
 `write_capacity`: (Optional, number) The write capacity for the table. Defaults to 1
