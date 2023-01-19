@@ -12,7 +12,7 @@ local applyRegionProvider(fullBlock, bags) =
                 {
                     Name: bag.Name,
                     Type: bag.Type,
-                    Value: bag.Value + { provider: barbe.asTraversal("aws." + barbe.asStr(fullBlock.region))}
+                    Value: bag.Value + { provider: barbe.asTraversal("aws." + barbe.asStr(fullBlock.region)) }
                 }
             else
                 bag
@@ -47,7 +47,7 @@ barbe.databags([
 
         applyRegionProvider(fullBlock, barbe.flatten([
             {
-                Name: labels[0] + "_aws_http_api_traversal_transform",
+                Name: labels[0] + "_aws_s3_traversal_transform",
                 Type: "traversal_transform",
                 Value: {
                     ["aws_s3." + labels[0]]: "aws_s3_bucket." + labels[0] + "_s3"
@@ -71,7 +71,7 @@ barbe.databags([
                         }
                     },
                     {
-                        Name: labels[0] + "_s3_versioning",
+                        Name: labels[0] + "_s3_object_lock",
                         Type: "cr_aws_s3_bucket_object_lock_configuration",
                         Value: {
                             bucket: barbe.asTraversal("aws_s3_bucket." + labels[0] + "_s3.bucket"),

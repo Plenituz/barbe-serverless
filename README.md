@@ -1,7 +1,7 @@
 # Barbe-serverless
 
 Barbe-serverless is a serverless application development solution that fits right in with you existing project. 
-Define DynamoDB tables, lambda functions, APIs and more, all batteries included, even extra ones for your other toys.
+Define DynamoDB tables, Lambda functions, APIs and more, all batteries included, even extra ones for your other toys.
 
 Here is a few problems Barbe-serverless solves for you:
 - Multi region is built in, change a string, change the region
@@ -22,13 +22,18 @@ for_each "regions" {
   }
 }
 ```
-- Enhance your existing projects: pull values directly from your Cloudformation stack, Serverless Framework config, and more*. Best part is, you don't even need to have any of their CLI installed to do so.
+- Enhance your existing projects: use regular Terraform, pull values directly from your Cloudformation stack, Serverless Framework config, and more*. Best part is, you don't even need to have any of their CLI installed to do so.
 ```hcl
 aws_fargate_task "task-runner" {
   environment {
     S3_BUCKET = serverless_framework.custom.myBucketName
     DDB_TABLE = cloudformation("my-stack-${env.STAGE}").resources.MyTable.Properties.TableName
   }
+}
+resource "aws_route53_record" "client_domain" {
+  name = "example.com"
+  type = "CNAME"
+  // ...
 }
 ```
 - Always forget about updating your IAM roles? No worries, we'll take care of it
@@ -122,4 +127,3 @@ Otherwise, get started with the [installation](./docs/installation.md) and [guid
 ## Ideas? Essential feature missing? Just a question or some feedback?
 
 Feel free to open an issue for **any** reason, would love to hear from you!
-You can also send me cat pictures on twitter DM @pinezul

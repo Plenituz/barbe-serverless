@@ -31,20 +31,13 @@ To deploy everything
 make deploy
 ```
 
-If you want to manage the Terraform deployment yourself instead of letting Barbe do it you can
-```bash
-barbe generate config.hcl *.tf --output dist --log-level debug
-cd dist && terraform init && terraform apply
-````
-
 To destroy it afterward you can
 ```bash
-cd dist && terraform destroy
-aws cloudformation delete-stack --stack-name tf-heart-cf
+make destroy
 ```
 
 
 This example is voluntarily only using pure terraform, none of the constructs that barbe-serverless provides, 
-just to show the simplicity of the interaction with CF. 
+just to show the interaction with CloudFormation. 
 
 Go checkout the rest of [Barbe-serverless](https://github.com/Plenituz/barbe-serverless) if you're tired of writing 100 lines of terraform for a simple lambda function.  

@@ -556,11 +556,11 @@ barbe.databags([
                                         else if std.length(split) == 3 then
                                             split[1] + "." + split[2]
                                         else
-                                            error "<showuser>couldn't figure out the route 53 zone name from the domain name '" + domainName + "', please provide it explicitly in 'aws_http_api." + name + ".domain.zone'</showuser>"
+                                            error "<showuser>couldn't figure out the route 53 zone name from the domain name '" + domainName + "', please provide it explicitly in 'aws_http_api." + name + ".domain.zone'. For example 'mywebsite.com'. You can find it at https://console.aws.amazon.com/route53/v2/hostedzones</showuser>"
                                     else if domain.name.Type == "template" && std.length(splitTemplate(domain.name, ".")) == 2 then
                                         splitTemplate(domain.name, ".")[1]
                                     else
-                                        error "<showuser>couldn't figure out the route 53 zone name from the domain name, please provide it explicitly in 'aws_http_api." + name + ".domain.zone'</showuser>"
+                                        error "<showuser>couldn't figure out the route 53 zone name from the domain name, please provide it explicitly in 'aws_http_api." + name + ".domain.zone'. For example 'mywebsite.com'. You can find it at https://console.aws.amazon.com/route53/v2/hostedzones</showuser>"
                             }
                         },
                         {
