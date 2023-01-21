@@ -1,5 +1,8 @@
 (() => {
   // barbe-std/rpc.ts
+  function isFailure(resp) {
+    return resp.error !== void 0;
+  }
   function barbeRpcCall(req) {
     const msg = JSON.stringify(req);
     console.log(msg);
@@ -168,7 +171,7 @@
         databags: bags
       }]
     });
-    if (resp.error) {
+    if (isFailure(resp)) {
       throw new Error(resp.error);
     }
   }

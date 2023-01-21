@@ -1,6 +1,11 @@
 (() => {
   // barbe-sls-lib/consts.ts
+  var AWS_S3 = "aws_s3";
   var AWS_FUNCTION = "aws_function";
+  var AWS_DYNAMODB = "aws_dynamodb";
+  var AWS_KINESIS_STREAM = "aws_kinesis_stream";
+  var AWS_IAM_LAMBDA_ROLE = "aws_iam_lambda_role";
+  var AWS_FARGATE_TASK = "aws_fargate_task";
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -149,18 +154,6 @@
       }))
     };
   }
-  function appendToTraversal(source, toAdd) {
-    return {
-      Type: source.Type,
-      Traversal: [
-        ...source.Traversal || [],
-        ...toAdd.split(".").map((part) => ({
-          Type: "attr",
-          Name: part
-        }))
-      ]
-    };
-  }
   function asFuncCall(funcName, args) {
     return {
       Type: "function_call",
@@ -218,20 +211,6 @@
     return {
       Type: "template",
       Parts: parts
-    };
-  }
-  function asBlock(arr) {
-    return {
-      Type: "array_const",
-      Meta: { IsBlock: true },
-      ArrayConst: arr.map((obj) => ({
-        Type: "object_const",
-        Meta: { IsBlock: true },
-        ObjectConst: Object.keys(obj).map((key) => ({
-          Key: key,
-          Value: asSyntax(obj[key])
-        }))
-      }))
     };
   }
   function iterateBlocks(container2, ofType, func) {
@@ -292,6 +271,17 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  function uniq(arr, key) {
+    const seen = /* @__PURE__ */ new Set();
+    return arr.filter((item) => {
+      const val = key ? key(item) : item;
+      if (seen.has(val)) {
+        return false;
+      }
+      seen.add(val);
+      return true;
+    });
+  }
 
   // barbe-sls-lib/lib.ts
   function compileDefaults(container2, name) {
@@ -325,8 +315,9 @@
   function compileNamePrefix(blockVal) {
     return concatStrArr(blockVal.name_prefix || asSyntax([]));
   }
-  function compileBlockParam(blockVal, blockName) {
-    return asVal(mergeTokens((blockVal[blockName] || asSyntax([])).ArrayConst || []));
+  function compileGlobalNamePrefix(container2) {
+    const globalDefaults = asVal(compileDefaults(container2, ""));
+    return concatStrArr(globalDefaults.name_prefix || asSyntax([]));
   }
   function preConfCloudResourceFactory(blockVal, kind, preconf) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
@@ -344,187 +335,237 @@
       }
     });
   }
-  function preConfTraversalTransform(blockVal) {
-    return (name, transforms) => ({
-      Name: `${blockVal.Name}_${name}`,
-      Type: "traversal_transform",
-      Value: transforms
-    });
-  }
 
-  // aws_function.ts
+  // aws_iam.ts
   var container = readDatabagContainer();
-  function awsFunctionIterator(bag) {
+  function lambdaRoleStatement(label, namePrefix) {
+    let statements = [
+      {
+        Action: [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream"
+        ],
+        Effect: "Allow",
+        Resource: asTemplate([
+          "arn:",
+          asTraversal("data.aws_partition.current.partition"),
+          ":logs:*:",
+          asTraversal("data.aws_caller_identity.current.account_id"),
+          ":log-group:/aws/lambda/",
+          ...(() => {
+            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+              return ["*:*"];
+            }
+            return [
+              ...namePrefix.Parts,
+              "*:*"
+            ];
+          })()
+        ])
+      },
+      {
+        Action: "logs:PutLogEvents",
+        Effect: "Allow",
+        Resource: asTemplate([
+          "arn:",
+          asTraversal("data.aws_partition.current.partition"),
+          ":logs:*:",
+          asTraversal("data.aws_caller_identity.current.account_id"),
+          ":log-group:/aws/lambda/",
+          ...(() => {
+            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+              return ["*:*:*"];
+            }
+            return [
+              ...namePrefix.Parts,
+              "*:*:*"
+            ];
+          })()
+        ])
+      }
+    ];
+    if (AWS_DYNAMODB in container) {
+      statements.push({
+        Action: "dynamodb:*",
+        Effect: "Allow",
+        Resource: Object.keys(container[AWS_DYNAMODB]).map((dynamodbName) => asTemplate([
+          "arn:",
+          asTraversal("data.aws_partition.current.partition"),
+          ":dynamodb:*:",
+          asTraversal("data.aws_caller_identity.current.account_id"),
+          ":table/",
+          asTraversal(`aws_dynamodb_table.${dynamodbName}_aws_dynamodb.name`),
+          "*"
+        ]))
+      });
+    }
+    if (AWS_KINESIS_STREAM in container) {
+      statements.push({
+        Action: "kinesis:*",
+        Effect: "Allow",
+        Resource: Object.keys(container[AWS_KINESIS_STREAM]).map((kinesisName) => asTraversal(`aws_kinesis_stream.${kinesisName}_aws_kinesis_stream.arn`))
+      });
+    }
+    if (AWS_S3 in container) {
+      statements.push({
+        Action: "s3:*",
+        Effect: "Allow",
+        Resource: Object.keys(container[AWS_S3]).flatMap((s3Name) => [
+          asTraversal(`aws_s3_bucket.${s3Name}_s3.arn`),
+          asTemplate([
+            asTraversal(`aws_s3_bucket.${s3Name}_s3.arn`),
+            "*"
+          ])
+        ])
+      });
+    }
+    if (AWS_FARGATE_TASK in container) {
+      statements.push(
+        {
+          Action: "ecs:RunTask",
+          Effect: "Allow",
+          Resource: Object.keys(container[AWS_FARGATE_TASK]).map((fargateName) => asTemplate([
+            "arn:",
+            asTraversal("data.aws_partition.current.partition"),
+            ":ecs:*:",
+            asTraversal("data.aws_caller_identity.current.account_id"),
+            ":task-definition/",
+            appendToTemplate(namePrefix, [fargateName]),
+            "*"
+          ]))
+        },
+        {
+          Action: "iam:PassRole",
+          Effect: "Allow",
+          //TODO this will cause duplicate entries if 2 tasks are defined and they both have the same
+          //execution role (which is the case most of the time since we use the account's default by default)
+          //this doesnt prevent the template from working but it will cause duplicate entries in the policy
+          Resource: [
+            ...Object.keys(container[AWS_FARGATE_TASK]).map((fargateName) => asTraversal(`local.__aws_fargate_task_${fargateName}_task_execution_role_arn`)),
+            asTemplate([
+              "arn:",
+              asTraversal("data.aws_partition.current.partition"),
+              ":iam::",
+              asTraversal("data.aws_caller_identity.current.account_id"),
+              ":role/",
+              namePrefix,
+              "*"
+            ])
+          ]
+        }
+      );
+    }
+    if (AWS_IAM_LAMBDA_ROLE in container && label in container[AWS_IAM_LAMBDA_ROLE]) {
+      const val = asVal(container[AWS_IAM_LAMBDA_ROLE][label][0].Value);
+      if (val.statements) {
+        statements.push(...asVal(val.statements));
+      }
+    }
+    return statements;
+  }
+  function defineRole(params) {
+    const { cloudResourceFactory, label, namePrefix, assumableBy } = params;
+    const cloudResource = cloudResourceFactory("resource");
+    const cloudData = cloudResourceFactory("data");
+    let principalService = [];
+    if (assumableBy) {
+      principalService.push(...asValArrayConst(assumableBy));
+    }
+    if (AWS_FUNCTION in container) {
+      principalService.push("lambda.amazonaws.com");
+    }
+    if (AWS_FARGATE_TASK in container) {
+      principalService.push("ecs-tasks.amazonaws.com");
+    }
+    if (principalService.length === 0) {
+      principalService.push("lambda.amazonaws.com");
+    }
+    return [
+      {
+        Type: "traversal_transform",
+        Name: `${label}_iam_traversal_transform`,
+        Value: {
+          [`aws_iam_lambda_role.${label}`]: `aws_iam_role.${label}_lambda_role`
+        }
+      },
+      //these are duplicated if aws_base is included, but useful if the component is imported standalone
+      cloudData("aws_caller_identity", "current", {}),
+      cloudData("aws_partition", "current", {}),
+      cloudResource("aws_iam_role", `${label}_lambda_role`, {
+        name: appendToTemplate(namePrefix, [`${label}-role`]),
+        assume_role_policy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Sid: "",
+              Principal: {
+                Service: principalService
+              }
+            }
+          ]
+        })
+      }),
+      cloudResource("aws_iam_policy", `${label}_lambda_role_policy`, {
+        name: appendToTemplate(namePrefix, [`${label}-role-policy`]),
+        description: "",
+        policy: asFuncCall("jsonencode", [{
+          Version: "2012-10-17",
+          Statement: lambdaRoleStatement(label, namePrefix)
+        }])
+      }),
+      cloudResource("aws_iam_role_policy_attachment", `${label}_lambda_role_policy_attachment`, {
+        role: asTraversal(`aws_iam_role.${label}_lambda_role.name`),
+        policy_arn: asTraversal(`aws_iam_policy.${label}_lambda_role_policy.arn`)
+      })
+    ];
+  }
+  function awsIamLambdaRoleIterator(bag) {
     if (!bag.Value) {
       return [];
     }
+    if (!bag.Name || bag.Name.length === 0) {
+      return [];
+    }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResourceId = block.cloudresource_id ? asStr(block.cloudresource_id) : void 0;
-    const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : void 0;
-    const cloudResource = preConfCloudResourceFactory(block, "resource");
-    const cloudData = preConfCloudResourceFactory(block, "data");
-    const traversalTransform = preConfTraversalTransform(block);
-    const dotPackage = compileBlockParam(block, "package");
-    const packageLocation = dotPackage.packaged_file || `${cloudResourceDir ? `${cloudResourceDir}/` : ""}.package/${bag.Name}_lambda_package.zip`;
-    const dotEnvironment = compileBlockParam(block, "environment");
-    const dotProvisionedConc = compileBlockParam(block, "provisioned_concurrency");
-    let databags = [
-      //we need to duplicate this in case this component is imported without the aws_base component
-      cloudData("aws_caller_identity", "current", {}),
-      traversalTransform("aws_function_traversal_transform", {
-        [`aws_function.${bag.Name}`]: `aws_lambda_function.${bag.Name}_lambda`,
-        [`aws_function.${bag.Name}.function_url`]: `aws_lambda_function_url.${bag.Name}_lambda_url.function_url`
-      }),
-      cloudResource("aws_s3_bucket", "deployment_bucket", {
-        bucket: appendToTemplate(namePrefix, ["deploy-bucket"]),
-        force_destroy: true
-      }),
-      cloudResource("aws_s3_object", `${bag.Name}_package`, {
-        bucket: asTraversal("aws_s3_bucket.deployment_bucket.id"),
-        key: appendToTemplate(namePrefix, [`${bag.Name}_lambda_package.zip`]),
-        source: packageLocation,
-        etag: asFuncCall("filemd5", [packageLocation])
-      }),
-      cloudResource("aws_lambda_function", `${bag.Name}_lambda`, {
-        function_name: appendToTemplate(namePrefix, [bag.Name]),
-        package_type: "Zip",
-        publish: true,
-        description: block.description || void 0,
-        handler: block.handler || void 0,
-        runtime: block.runtime || void 0,
-        memory_size: block.memory_size || 128,
-        timeout: block.timeout || 900,
-        ephemeral_storage: block.ephemeral_storage || void 0,
-        role: block.role || asTraversal("aws_iam_role.default_lambda_role.arn"),
-        architectures: [block.architecture || "x86_64"],
-        layers: block.layers || void 0,
-        s3_bucket: asTraversal("aws_s3_bucket.deployment_bucket.id"),
-        s3_key: asTraversal(`aws_s3_object.${bag.Name}_package.id`),
-        source_code_hash: asFuncCall("filebase64sha256", [packageLocation]),
-        // "architectures" causes a re-deploys even when unchanged, so we kind of have to add this.
-        // this technically forces users to delete/recreate lambda functions if they change the architecture
-        // but it's probably a rare thing to do/a bad idea anyway
-        lifecycle: asBlock([{
-          ignore_changes: [
-            asTraversal("architectures")
-          ]
-        }]),
-        environment: block.environment ? asBlock([{ variables: dotEnvironment }]) : void 0
-      }),
-      cloudResource("aws_cloudwatch_log_group", `${bag.Name}_lambda_logs`, {
-        name: asTemplate([
-          "/aws/lambda/",
-          asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`)
-        ]),
-        retention_in_days: block.logs_retention_days || 30
-      })
-    ];
-    if (!dotPackage.packaged_file) {
-      databags.push({
-        Name: `${bag.Name}_${cloudResourceId}${cloudResourceDir}_lambda_package`,
-        Type: "zipper",
-        Value: {
-          output_file: packageLocation,
-          file_map: dotPackage.file_map || {},
-          include: dotPackage.include || [],
-          exclude: dotPackage.exclude || []
-        }
-      });
-    }
-    if (block.function_url_enabled && asVal(block.function_url_enabled)) {
-      databags.push(
-        cloudResource("aws_lambda_function_url", bag.Name + "_lambda_url", {
-          function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
-          authorization_type: "NONE"
-        })
-      );
-    }
-    if (block.provisioned_concurrency) {
-      databags.push(
-        cloudResource("aws_lambda_alias", `${bag.Name}_alias`, {
-          name: dotProvisionedConc.alias_name || "provisioned",
-          function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
-          function_version: asTraversal(`aws_lambda_function.${bag.Name}_lambda.version`)
-        }),
-        cloudResource("aws_lambda_provisioned_concurrency_config", `${bag.Name}_prov_conc`, {
-          function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
-          qualifier: asTraversal(`aws_lambda_alias.${bag.Name}_alias.function_name`),
-          provisioned_concurrent_executions: dotProvisionedConc.value || dotProvisionedConc.min || 1
-        })
-      );
-      if (dotProvisionedConc.min || dotProvisionedConc.max) {
-        databags.push(
-          cloudResource("aws_appautoscaling_target", `${bag.Name}_autoscl_trgt`, {
-            max_capacity: dotProvisionedConc.max || 1,
-            min_capacity: dotProvisionedConc.min || 1,
-            resource_id: asTemplate([
-              "function:",
-              asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
-              ":",
-              asTraversal(`aws_lambda_alias.${bag.Name}_alias.name`)
-            ]),
-            scalable_dimension: "lambda:function:ProvisionedConcurrency",
-            service_namespace: "lambda",
-            role_arn: asTemplate([
-              "arn:aws:iam::",
-              asTraversal("data.aws_caller_identity.current.account_id"),
-              ":role/aws-service-role/lambda.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_LambdaConcurrency"
-            ])
-          }),
-          cloudResource("aws_appautoscaling_policy", `${bag.Name}_autoscl_pol`, {
-            name: asTemplate([
-              "ProvConcAutoScal:",
-              asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`)
-            ]),
-            scalable_dimension: "lambda:function:ProvisionedConcurrency",
-            service_namespace: "lambda",
-            policy_type: "TargetTrackingScaling",
-            resource_id: asTraversal(`aws_appautoscaling_target.${bag.Name}_autoscl_trgt.resource_id`),
-            target_tracking_scaling_policy_configuration: asBlock([{
-              //TODO make these configurable eventually
-              target_value: 0.75,
-              scale_in_cooldown: 120,
-              scale_out_cooldown: 0,
-              customized_metric_specification: asBlock([{
-                metric_name: "ProvisionedConcurrencyUtilization",
-                namespace: "AWS/Lambda",
-                statistic: "Maximum",
-                unit: "Count",
-                dimensions: asBlock([
-                  {
-                    name: "FunctionName",
-                    value: asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`)
-                  },
-                  {
-                    name: "Resource",
-                    value: asTemplate([
-                      asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
-                      ":",
-                      asTraversal(`aws_lambda_alias.${bag.Name}_alias.name`)
-                    ])
-                  }
-                ])
-              }])
-            }])
-          })
-        );
-      }
-    }
-    if (block.event_s3) {
-      const bucketTraversalsStr = Array.from(new Set(
-        asValArrayConst(block.event_s3).map((event) => event.bucket).filter((t) => t).map(asStr)
-      ));
-      databags.push(
-        ...bucketTraversalsStr.map((traversalStr, i) => cloudResource("aws_lambda_permission", `${bag.Name}_${i}_s3_permission`, {
-          statement_id: "AllowExecutionFromS3Bucket",
-          action: "lambda:InvokeFunction",
-          principal: "s3.amazonaws.com",
-          function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
-          source_arn: appendToTraversal(asTraversal(traversalStr), "arn")
-        }))
-      );
-    }
-    return databags;
+    const cloudResourceFactory = (kind) => preConfCloudResourceFactory(block, kind);
+    return defineRole({
+      cloudResourceFactory,
+      label: bag.Name,
+      namePrefix,
+      assumableBy: block.assumable_by
+    });
   }
-  exportDatabags(iterateBlocks(container, AWS_FUNCTION, awsFunctionIterator).flat());
+  var globalNamePrefix = compileGlobalNamePrefix(container);
+  var allDirectories = [
+    ...iterateBlocks(container, AWS_FUNCTION, (bag) => {
+      const [block, _] = applyDefaults(container, bag.Value);
+      return block.cloudresource_dir || ".";
+    }),
+    ...iterateBlocks(container, AWS_FARGATE_TASK, (bag) => {
+      const [block, _] = applyDefaults(container, bag.Value);
+      return block.cloudresource_dir || ".";
+    })
+  ].filter((dir) => dir);
+  allDirectories = uniq(allDirectories, asStr);
+  var defaultRoles = allDirectories.map((dir) => {
+    const dirStr = asStr(dir);
+    const cloudResourceFactory = (kind) => (type, name, value) => cloudResourceRaw({
+      kind,
+      dir: dirStr === "." ? void 0 : dirStr,
+      type,
+      name,
+      value
+    });
+    return defineRole({
+      cloudResourceFactory,
+      label: "default",
+      namePrefix: dirStr === "." ? globalNamePrefix : appendToTemplate(globalNamePrefix, [`${dirStr}-`])
+    });
+  }).flat();
+  exportDatabags([
+    ...defaultRoles,
+    ...iterateBlocks(container, AWS_IAM_LAMBDA_ROLE, awsIamLambdaRoleIterator).flat()
+  ]);
 })();

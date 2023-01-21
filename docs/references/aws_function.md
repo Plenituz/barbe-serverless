@@ -208,6 +208,8 @@ event_dynamodb_stream {
 
 &nbsp;&nbsp;&nbsp;&nbsp;`maximum_record_age_in_seconds` (Optional, integer) The maximum age of a record that Lambda sends to a function for processing
 
+&nbsp;&nbsp;&nbsp;&nbsp;`maximum_retry_attempts` (Optional, integer) The maximum number of times to retry when the function returns an error. Only available for stream sources (DynamoDB and Kinesis). Minimum and default of -1 (forever), maximum of 10000.
+
 &nbsp;&nbsp;&nbsp;&nbsp;`bisect_batch_on_function_error` (Optional, boolean) If the function returns an error, split the batch in two and retry
 
 &nbsp;&nbsp;&nbsp;&nbsp;`tumbling_window_in_seconds` (Optional, boolean) The duration in seconds of a processing window for [AWS Lambda streaming analytics](https://docs.aws.amazon.com/lambda/latest/dg/with-kinesis.html#services-kinesis-windows)

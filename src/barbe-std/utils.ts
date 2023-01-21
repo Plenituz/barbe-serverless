@@ -1,4 +1,4 @@
-import { barbeRpcCall } from "./rpc";
+import { barbeRpcCall, isFailure } from "./rpc";
 
 export type CloudResourceBuilder = {
     // directory where the cloud resource configuration will be put
@@ -142,6 +142,12 @@ export type SugarCoatedDatabag = {
     Name: string
     Labels?: string[]
     Value?: any
+}
+
+export type SugarCoatedDatabagContainer = {
+    [mType: string]: {
+        [mName: string]: SugarCoatedDatabag[]
+    }
 }
 
 export type DatabagContainer = {
@@ -582,7 +588,7 @@ export function concatStrArr(token: SyntaxToken): SyntaxToken {
     }
 }
 
-export function appendToTemplate(source: SyntaxToken, toAdd: any[]) {
+export function appendToTemplate(source: SyntaxToken, toAdd: any[]): SyntaxToken {
     let parts: SyntaxToken[] = [];
     if (source.Type === "template") {
         parts = source.Parts?.slice() || [];
@@ -689,9 +695,70 @@ export function exportDatabags(bags: (Databag | SugarCoatedDatabag)[]) {
             databags: bags
         }]
     });
-    if (resp.error) {
+    if (isFailure(resp)) {
         throw new Error(resp.error)
     }
+}
+
+export type ImportComponentInput = {
+    url: string
+    name: string
+    copyFromContainer?: string[]
+    input?: SugarCoatedDatabag[]
+}
+
+export function importComponents(container: DatabagContainer, components: ImportComponentInput[]): SugarCoatedDatabagContainer {
+    type RealImportComponentInput = {
+        url: string
+        input: SugarCoatedDatabagContainer
+    }
+    let barbeImportComponent: SugarCoatedDatabag[] = []
+    
+    for (const component of components) {
+        //TODO include lifecycle step maybe?
+        let importComponentInput: RealImportComponentInput = {
+            url: component.url,
+            input: {}
+        }
+        if(component.copyFromContainer) {
+            for (const copyFrom of component.copyFromContainer) {
+                if (copyFrom in container) {
+                    importComponentInput.input[copyFrom] = container[copyFrom];
+                }
+            }
+        }
+        if(component.input) {
+            for(const databag of component.input) {
+                const type = databag.Type;
+                const name = databag.Name;
+                if(!(type in importComponentInput.input)) {
+                    importComponentInput.input[type] = {}
+                }
+                if(!(name in importComponentInput.input[type])){ 
+                    importComponentInput.input[type][name] = []
+                }
+                importComponentInput.input[type][name].push(databag);
+            }
+        }
+        
+        const id = `${component.name}_${component.url}`
+        barbeImportComponent.push({
+            Type: "barbe_import_component",
+            Name: id,
+            Value: importComponentInput
+        })
+    }
+
+    const resp = barbeRpcCall<DatabagContainer>({
+        method: "importComponents",
+        params: [{
+            databags: barbeImportComponent
+        }]
+    });
+    if (isFailure(resp)) {
+        throw new Error(resp.error)
+    }
+    return resp.result;
 }
 
 export function readDatabagContainer() {

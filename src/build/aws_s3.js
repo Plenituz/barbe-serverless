@@ -5,6 +5,9 @@
   var EVENT_S3 = "event_s3";
 
   // barbe-std/rpc.ts
+  function isFailure(resp) {
+    return resp.error !== void 0;
+  }
   function barbeRpcCall(req) {
     const msg = JSON.stringify(req);
     console.log(msg);
@@ -259,7 +262,7 @@
         databags: bags
       }]
     });
-    if (resp.error) {
+    if (isFailure(resp)) {
       throw new Error(resp.error);
     }
   }
@@ -304,8 +307,8 @@
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
     return (type, name, value) => cloudResourceRaw({
       kind,
-      dir: cloudResourceId,
-      id: cloudResourceDir,
+      dir: cloudResourceDir,
+      id: cloudResourceId,
       type,
       name,
       value: {

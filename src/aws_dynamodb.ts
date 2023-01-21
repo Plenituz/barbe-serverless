@@ -1,7 +1,7 @@
 import md5 from 'md5';
-import { AWS_DYNAMODB, AWS_FUNCTION, EVENT_DYNAMODB_STREAM, EVENT_S3 } from './barbe-sls-lib/consts';
+import { AWS_DYNAMODB, AWS_FUNCTION, EVENT_DYNAMODB_STREAM } from './barbe-sls-lib/consts';
 import { applyDefaults, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, cloudResourceRaw, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate } from './barbe-std/utils';
+import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate, asSyntax } from './barbe-std/utils';
 
 const container = readDatabagContainer()
 
@@ -78,10 +78,12 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     } else {
         regions = [regionVal]
     }
+    const regionMap = {}
+    regions.forEach(region => regionMap[asStr(region)] = true)
     const provider = regions.length === 0 ? undefined : asTraversal(`aws.${asStr(regions[0])}`)
+    const dotAutoScaling = asVal(mergeTokens(block.auto_scaling?.ArrayConst || []))
 
     const cloudResource = preConfCloudResourceFactory(block, 'resource', { provider })
-    const cloudData = preConfCloudResourceFactory(block, 'data', { provider })
     const traversalTransform = preConfTraversalTransform(block)
     const indexResourceName = (gsi: DatabagObjVal, suffix: string) => {
         let toHash = asStr(gsi.hash_key!)
@@ -95,6 +97,12 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             return appendToTemplate(gsi.hash_key!, ['-', gsi.range_key, '-index'])
         }
         return appendToTemplate(gsi.hash_key!, ['-index'])
+    }
+    const indexDotAutoScaling = (gsi: DatabagObjVal): DatabagObjVal => {
+        return asVal(mergeTokens([
+            ...(block.auto_scaling?.ArrayConst || []),
+            ...(gsi.auto_scaling?.ArrayConst || [])
+        ]))
     }
     const makeAutoScalingResourceGroup = (params: {
         cloudResource: (type: string, name: string, value: string) => Databag, 
@@ -110,7 +118,7 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 min_capacity: params.dotAutoScaling.min_read || params.dotAutoScaling.min || 1,
                 resource_id: asTemplate([
                     'table/',
-                    asTraversal(`aws_dynamodb_table.${bag.Name}.name`),
+                    asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.name`),
                     ...(params.gsi ? [
                         '/index/',
                         ddbIndexName(params.gsi)
@@ -142,7 +150,7 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 min_capacity: params.dotAutoScaling.min_write || params.dotAutoScaling.min || 1,
                 resource_id: asTemplate([
                     'table/',
-                    asTraversal(`aws_dynamodb_table.${bag.Name}.name`),
+                    asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.name`),
                     ...(params.gsi ? [
                         '/index/',
                         ddbIndexName(params.gsi)
@@ -196,7 +204,7 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     global_table_arn: asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.arn`),
                     depends_on: dependsOn
                 }
-            })),
+            })()),
             cloudData('aws_dynamodb_table', `${bag.Name}_${regionStr}_aws_dynamodb_replica`, {
                 name: asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.name`),
                 depends_on: [
@@ -205,7 +213,6 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }),
         ]
         if(block.auto_scaling) {
-            const dotAutoScaling = asVal(mergeTokens(block.auto_scaling?.ArrayConst || []))
             localDatabags.push(
                 ...makeAutoScalingResourceGroup({
                     cloudResource,
@@ -218,20 +225,14 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             )
             if (dotGlobalSecondaryIndex) {
                 localDatabags.push(
-                    ...dotGlobalSecondaryIndex.map(gsi => {
-                        const indexAutoScaling = asVal(mergeTokens([
-                            ...(block.auto_scaling?.ArrayConst || []),
-                            ...(gsi.auto_scaling?.ArrayConst || [])
-                        ]))
-                        return makeAutoScalingResourceGroup({
-                            cloudResource,
-                            dotAutoScaling: indexAutoScaling,
-                            prefix: indexResourceName(gsi, `$aws_ddb_replica_${regionStr}_ind_as`),
-                            dependsOn: [
-                                asTraversal(`aws_dynamodb_table_replica.${bag.Name}_${regionStr}_aws_dynamodb_replica`)
-                            ],
-                        })
-                    }).flat(),
+                    ...dotGlobalSecondaryIndex.map(gsi => makeAutoScalingResourceGroup({
+                        cloudResource,
+                        dotAutoScaling: indexDotAutoScaling(gsi),
+                        prefix: indexResourceName(gsi, `aws_ddb_replica_${regionStr}_ind_as`),
+                        dependsOn: [
+                            asTraversal(`aws_dynamodb_table_replica.${bag.Name}_${regionStr}_aws_dynamodb_replica`)
+                        ],
+                    })).flat(),
                 )
             }
         }
@@ -344,7 +345,93 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
                 enabled: block.enable_point_in_time_recovery
             }]) : undefined,
-        })
+        }),
+        ...ddbStreamEvents.map(({event, bag: otherBag}, i) => {
+            //otherBag is an aws_function block
+            if(!otherBag.Value) {
+                return []
+            }
+            const [otherBlock, _] = applyDefaults(container, otherBag.Value);
+            let localCloudResource = cloudResource
+
+            if(regions.length > 0) {
+                if(!otherBlock.region) {
+                    throw new Error(`DynamoDB stream event handler on 'aws_function.${otherBag.Name}' must have a region specified because the table 'aws_dynamodb.${bag.Name}' has one or more regions specified`)
+                }
+                const otherRegion = asStr(otherBlock.region)
+                if(!(otherRegion in regions)) {
+                    throw new Error(`the function 'aws_function.${otherBag.Name}' is in region '${otherRegion}' but is trying to subscribe to dynamodb streams on table 'aws_dynamodb.${bag.Name}' only available in regions: ${Object.keys(regionMap).map(r => `'${r}'`).join(', ')}`)
+                }
+                const provider = asTraversal(`aws.${otherRegion}`)
+                localCloudResource = preConfCloudResourceFactory(block, 'resource', { provider })
+            }
+            const regionStr = asStr(otherBlock.region || 'noreg')
+
+            let localDatabags = [
+                localCloudResource('aws_lambda_event_source_mapping', `${bag.Name}_${i}_ddb_stream`, {
+                    batch_size: event.batch_size,
+                    starting_position: event.starting_position || 'TRIM_HORIZON',
+                    enabled: event.enabled,
+                    function_response_types: event.function_response_types,
+                    parallelization_factor: event.parallelization_factor,
+                    maximum_batching_window_in_seconds: event.maximum_batching_window_in_seconds,
+                    maximum_record_age_in_seconds: event.maximum_record_age_in_seconds,
+                    bisect_batch_on_function_error: event.bisect_batch_on_function_error,
+                    maximum_retry_attempts: event.maximum_retry_attempts,
+                    tumbling_window_in_seconds: event.tumbling_window_in_seconds,
+                    function_name: asTraversal(`aws_lambda_function.${otherBag.Name}_lambda.function_name`),
+                    destination_config: event.on_failure_destination_arn ? asBlock([{
+                        on_failure: asBlock([{
+                            destination_arn: event.on_failure_destination_arn
+                        }])
+                    }]) : undefined,
+                    event_source_arn: (() => {
+                        let sourceArn: SyntaxToken
+                        if(!event.type || asStr(event.type) === 'dynamodb') {
+                            if (!event.table) {
+                                throw new Error(`'aws_function.${otherBag.Name}.table' must be specified if 'aws_function.${otherBag.Name}.type' is empty or 'dynamodb'`)
+                            }
+                            sourceArn = appendToTraversal(event.table!, 'stream_arn')
+                        } else if (asStr(event.type) === 'kinesis') {
+                            if (!event.stream) {
+                                throw new Error(`Kinesis stream event handler on 'aws_function.${otherBag.Name}' must have a stream specified`)
+                            }
+                            sourceArn = asTraversal(`aws_kinesis_stream.${bag.Name}_${regionStr}_aws_kinesis_stream.arn`)
+                        } else {
+                            throw new Error(`'${asStr(event.type)}' is an invalid value for 'aws_function.${otherBag.Name}.type'`)
+                        }
+                    })(),
+                    filter_criteria: event.filter ? asBlock([{
+                        filter: asBlock(asValArrayConst(event.filter).map(f => ({
+                            pattern: f.pattern,
+                        })))
+                    }]) : undefined
+                })
+            ]
+            if (event.type && asStr(event.type) === 'kinesis') {
+                localDatabags.push(
+                    //this is not a cloud resource, it relies on the `aws_kinesis.ts` component
+                    //this is done because that way the aws_iam component can detect it and populate the iam role accordingly
+                    {
+                        Type: 'aws_kinesis_stream',
+                        Name: `${bag.Name}_${regionStr}_aws_kinesis_stream`,
+                        Value: asSyntax({
+                            region: otherBlock.region,
+                            name: asTemplate([
+                                asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.name`),
+                                '-ddb-stream-dest'
+                            ]),
+                            shard_count: 1,
+                        })
+                    },
+                    localCloudResource('aws_dynamodb_kinesis_streaming_destination', `${bag.Name}_${regionStr}_ddb_kinesis_dest`, {
+                        stream_arn: asTraversal(`aws_kinesis_stream.${bag.Name}_${regionStr}_aws_kinesis_stream.arn`),
+                        table_name: asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.name`),
+                    })
+                )
+            }
+            return localDatabags
+        }).flat()
     ]
     if (block.kinesis_stream) {
         databags.push(
@@ -364,6 +451,25 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 return makeRegionalReplica(region)
             }).flat()
         )
+    }
+    if (block.auto_scaling) {
+        databags.push(
+            ...makeAutoScalingResourceGroup({
+                cloudResource,
+                prefix: `${bag.Name}_aws_ddb_table_as`,
+                dotAutoScaling,
+            })
+        )
+        if (dotGlobalSecondaryIndex) {
+            databags.push(
+                ...dotGlobalSecondaryIndex.map((gsi, i) => makeAutoScalingResourceGroup({
+                    cloudResource,
+                    prefix: indexResourceName(gsi, 'aws_ddb_table_ind_as'),
+                    dotAutoScaling: indexDotAutoScaling(gsi),
+                    gsi,
+                })).flat()
+            )
+        }
     }
 
     return databags

@@ -9,6 +9,8 @@ async function main() {
             'aws_s3.ts',
             'aws_function.ts',
             'aws_dynamodb.ts',
+            'aws_kinesis.ts',
+            'aws_iam.ts',
         ],
         bundle: true,
         // minify: true,

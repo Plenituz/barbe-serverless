@@ -44,6 +44,11 @@ export function compileNamePrefix(blockVal: DatabagObjVal): SyntaxToken {
     return concatStrArr(blockVal.name_prefix || asSyntax([]));
 }
 
+export function compileGlobalNamePrefix(container: DatabagContainer): SyntaxToken {
+    const globalDefaults = asVal(compileDefaults(container, ''));
+    return concatStrArr(globalDefaults.name_prefix || asSyntax([]));
+}
+
 /*
 compileBlockParam(
     block {
@@ -72,8 +77,8 @@ export function preConfCloudResourceFactory(blockVal: DatabagObjVal, kind: strin
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : undefined
     return (type: string, name: string, value: any) => cloudResourceRaw({
         kind,
-        dir: cloudResourceId,
-        id: cloudResourceDir,
+        dir: cloudResourceDir,
+        id: cloudResourceId,
         type,
         name,
         value: {
