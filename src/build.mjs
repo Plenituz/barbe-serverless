@@ -11,6 +11,7 @@ async function main() {
             'aws_dynamodb.ts',
             'aws_kinesis.ts',
             'aws_iam.ts',
+            'state_store.ts',
         ],
         bundle: true,
         // minify: true,

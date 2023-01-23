@@ -96,3 +96,19 @@ export function preConfTraversalTransform(blockVal: DatabagObjVal) {
         Value: transforms
     })
 }
+
+export function isSimpleTemplate(token: SyntaxToken | string | undefined): boolean {
+    if(!token) {
+        return false;
+    }
+    if(typeof token === 'string' || token.Type === 'literal_value') {
+        return true;
+    }
+    if(token.Type !== 'template') {
+        return false;
+    }
+    if(!token.Parts) {
+        return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+}

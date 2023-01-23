@@ -604,18 +604,39 @@ export function appendToTemplate(source: SyntaxToken, toAdd: any[]): SyntaxToken
     };
 }
 
-export function asBlock(arr: { [key: string]: any }[]) {
+export type LabeledBlockCreator = () => {
+    block: { [key: string]: any },
+    labels: string[]
+}
+
+export function asBlock(arr: (LabeledBlockCreator | { [key: string]: any })[]) {
     return {
         Type: "array_const",
         Meta: { IsBlock: true },
-        ArrayConst: arr.map(obj => ({
-            Type: "object_const",
-            Meta: { IsBlock: true },
-            ObjectConst: Object.keys(obj).map(key => ({
-                Key: key,
-                Value: asSyntax(obj[key])
-            }))
-        }))
+        ArrayConst: arr.map(obj => {
+            if (typeof obj === 'function') {
+                const { block, labels } = obj();
+                return {
+                    Type: "object_const",
+                    Meta: { 
+                        IsBlock: true,
+                        BlockLabels: labels
+                    },
+                    ObjectConst: Object.keys(block).map(key => ({
+                        Key: key,
+                        Value: asSyntax(block[key])
+                    }))
+                }
+            }
+            return {
+                Type: "object_const",
+                Meta: { IsBlock: true },
+                ObjectConst: Object.keys(obj).map(key => ({
+                    Key: key,
+                    Value: asSyntax(obj[key])
+                }))
+            }
+        })
     }
 }
 
@@ -646,14 +667,6 @@ export function iterateBlocks<T>(container: DatabagContainer, ofType: string, fu
     }
     return output;
 }
-
-// export function databag(type: string, name: string, value: any): SugarCoatedDatabag {
-//     return {
-//         Type: type,
-//         Name: name,
-//         Value: value
-//     }
-// }
 
 export function cloudResourceRaw(params: CloudResourceBuilder): Databag {
     let typeStr = "cr_";
@@ -707,7 +720,20 @@ export type ImportComponentInput = {
     input?: SugarCoatedDatabag[]
 }
 
-export function importComponents(container: DatabagContainer, components: ImportComponentInput[]): SugarCoatedDatabagContainer {
+export function applyTransformers(input: SugarCoatedDatabag[]): DatabagContainer {
+    const resp = barbeRpcCall<DatabagContainer>({
+        method: "transformContainer",
+        params: [{
+            databags: input
+        }]
+    });
+    if (isFailure(resp)) {
+        throw new Error(resp.error)
+    }
+    return resp.result;
+}
+
+export function importComponents(container: DatabagContainer, components: ImportComponentInput[]): DatabagContainer {
     type RealImportComponentInput = {
         url: string
         input: SugarCoatedDatabagContainer
@@ -765,6 +791,22 @@ export function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"))
 }
 
+export function readState() {
+    return JSON.parse(os.file.readFile("__barbe_state.json"))
+}
+
+export function barbeLifecycleStep(): string {
+    return os.getenv("BARBE_LIFECYCLE_STEP");
+}
+
+export function barbeCommand(): string {
+    return os.getenv("BARBE_COMMAND");
+}
+
+export function barbeOutputDir(): string {
+    return os.getenv("BARBE_OUTPUT_DIR");
+}
+
 export function uniq<T>(arr: T[], key?: (item: T) => any): T[] {
     const seen = new Set();
     return arr.filter(item => {
@@ -775,4 +817,32 @@ export function uniq<T>(arr: T[], key?: (item: T) => any): T[] {
         seen.add(val);
         return true;
     });
+}
+
+export const BarbeState = {
+    setValue: (key: string, value: any) => ({
+        Type: 'barbe_state(set_value)',
+        Name: key,
+        Value: value
+    }),
+
+    deleteKey: (key: string) => ({
+        Type: 'barbe_state(delete_key)',
+        Name: key,
+        Value: null
+    }),
+
+    putInObject: (key: string, value: { [key: string]: any }) => ({
+        Type: 'barbe_state(put_in_object)',
+        Name: key,
+        Value: value
+    }),
+
+    getObjectValue: (state: any, key: string, valueKey: string): any | undefined => state && state[key] && state[key][valueKey],
+
+    deleteFromObject: (key: string, valueKey: string) => ({
+        Type: 'barbe_state(delete_from_object)',
+        Name: key,
+        Value: valueKey
+    })
 }

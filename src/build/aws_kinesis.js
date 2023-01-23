@@ -199,14 +199,30 @@
     return {
       Type: "array_const",
       Meta: { IsBlock: true },
-      ArrayConst: arr.map((obj) => ({
-        Type: "object_const",
-        Meta: { IsBlock: true },
-        ObjectConst: Object.keys(obj).map((key) => ({
-          Key: key,
-          Value: asSyntax(obj[key])
-        }))
-      }))
+      ArrayConst: arr.map((obj) => {
+        if (typeof obj === "function") {
+          const { block, labels } = obj();
+          return {
+            Type: "object_const",
+            Meta: {
+              IsBlock: true,
+              BlockLabels: labels
+            },
+            ObjectConst: Object.keys(block).map((key) => ({
+              Key: key,
+              Value: asSyntax(block[key])
+            }))
+          };
+        }
+        return {
+          Type: "object_const",
+          Meta: { IsBlock: true },
+          ObjectConst: Object.keys(obj).map((key) => ({
+            Key: key,
+            Value: asSyntax(obj[key])
+          }))
+        };
+      })
     };
   }
   function iterateBlocks(container2, ofType, func) {
