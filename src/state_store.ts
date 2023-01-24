@@ -1,61 +1,10 @@
 import { STATE_STORE } from "./barbe-sls-lib/consts"
-import { applyDefaults, compileBlockParam, isSimpleTemplate, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
-import { readDatabagContainer, exportDatabags, iterateBlocks, barbeLifecycleStep, applyTransformers, Databag, SugarCoatedDatabag, asStr, asVal, appendToTemplate, asBlock, asSyntax, readState } from './barbe-std/utils';
+import { applyDefaults, compileBlockParam, getAwsCreds, getGcpToken, isSimpleTemplate, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
+import { readDatabagContainer, exportDatabags, iterateBlocks, applyTransformers, Databag, SugarCoatedDatabag, asStr, appendToTemplate, asBlock, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 
 const container = readDatabagContainer()
-const state = readState()
-if(!(barbeLifecycleStep() in { 'pre_generate': 1, 'generate': 1, 'post_generate': 1 })){
-    quit()
-}
-
-//TODO we should group the requests for gcs token and aws creds together
-//to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
-let __gcpTokenCached = '';
-function getGcpToken(): string {
-    if(__gcpTokenCached) {
-        return __gcpTokenCached;
-    }
-    const transformed = applyTransformers([{
-        Name: "state_store_credentials",
-        Type: "gcp_token_request",
-        Value: {}
-    }])
-    const token = transformed.gcp_token?.state_store_credentials[0]?.Value
-    if(!token) {
-        throw new Error('gcp_token not found')
-    }
-    __gcpTokenCached = asStr(asVal(token).access_token);
-    return __gcpTokenCached;
-}
-
-type AwsCreds = {
-    access_key_id: string,
-    secret_access_key: string,
-    session_token: string
-}
-let __awsCredsCached: AwsCreds | undefined = undefined;
-function getAwsCreds(): AwsCreds {
-    if(__awsCredsCached) {
-        return __awsCredsCached;
-    }
-    const transformed = applyTransformers([{
-        Name: "state_store_credentials",
-        Type: "aws_credentials_request",
-        Value: {}
-    }])
-    const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value
-    if(!creds) {
-        throw new Error('aws_credentials not found')
-    }
-    const credsObj = asVal(creds)
-    __awsCredsCached = {
-        access_key_id: asStr(credsObj.access_key_id),
-        secret_access_key: asStr(credsObj.secret_access_key),
-        session_token: asStr(credsObj.session_token),
-    }
-    return __awsCredsCached;
-}
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 
 function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {

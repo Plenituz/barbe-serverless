@@ -1,5 +1,5 @@
 // this is for functions that any component could find useful
-import { DatabagContainer, SyntaxToken, asStr, mergeTokens, asVal, concatStrArr, asSyntax, cloudResourceRaw, asTraversal, CloudResourceBuilder } from '../barbe-std/utils';
+import { DatabagContainer, SyntaxToken, asStr, mergeTokens, asVal, concatStrArr, asSyntax, cloudResourceRaw, asTraversal, CloudResourceBuilder, applyTransformers } from '../barbe-std/utils';
 
 export type DatabagObjVal = {
     [key: string]: SyntaxToken | undefined 
@@ -111,4 +111,52 @@ export function isSimpleTemplate(token: SyntaxToken | string | undefined): boole
         return true;
     }
     return token.Parts.every(isSimpleTemplate);
+}
+
+//TODO we should group the requests for gcs token and aws creds together
+//to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
+let __gcpTokenCached = '';
+export function getGcpToken(): string {
+    if(__gcpTokenCached) {
+        return __gcpTokenCached;
+    }
+    const transformed = applyTransformers([{
+        Name: "state_store_credentials",
+        Type: "gcp_token_request",
+        Value: {}
+    }])
+    const token = transformed.gcp_token?.state_store_credentials[0]?.Value
+    if(!token) {
+        throw new Error('gcp_token not found')
+    }
+    __gcpTokenCached = asStr(asVal(token).access_token);
+    return __gcpTokenCached;
+}
+
+export type AwsCreds = {
+    access_key_id: string,
+    secret_access_key: string,
+    session_token: string
+}
+let __awsCredsCached: AwsCreds | undefined = undefined;
+export function getAwsCreds(): AwsCreds {
+    if(__awsCredsCached) {
+        return __awsCredsCached;
+    }
+    const transformed = applyTransformers([{
+        Name: "state_store_credentials",
+        Type: "aws_credentials_request",
+        Value: {}
+    }])
+    const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value
+    if(!creds) {
+        throw new Error('aws_credentials not found')
+    }
+    const credsObj = asVal(creds)
+    __awsCredsCached = {
+        access_key_id: asStr(credsObj.access_key_id),
+        secret_access_key: asStr(credsObj.secret_access_key),
+        session_token: asStr(credsObj.session_token),
+    }
+    return __awsCredsCached;
 }

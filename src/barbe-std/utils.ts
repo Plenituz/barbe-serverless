@@ -795,6 +795,13 @@ export function readState() {
     return JSON.parse(os.file.readFile("__barbe_state.json"))
 }
 
+export function onlyRunForLifecycleSteps(steps: string[]) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+        quit()
+    }
+}
+
 export function barbeLifecycleStep(): string {
     return os.getenv("BARBE_LIFECYCLE_STEP");
 }

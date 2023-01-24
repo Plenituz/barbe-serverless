@@ -295,8 +295,11 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
-  function readState() {
-    return JSON.parse(os.file.readFile("__barbe_state.json"));
+  function onlyRunForLifecycleSteps(steps) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+      quit();
+    }
   }
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
@@ -368,13 +371,6 @@
     }
     return token.Parts.every(isSimpleTemplate);
   }
-
-  // state_store.ts
-  var container = readDatabagContainer();
-  var state = readState();
-  if (!(barbeLifecycleStep() in { "pre_generate": 1, "generate": 1, "post_generate": 1 })) {
-    quit();
-  }
   var __gcpTokenCached = "";
   function getGcpToken() {
     if (__gcpTokenCached) {
@@ -414,6 +410,10 @@
     };
     return __awsCredsCached;
   }
+
+  // state_store.ts
+  var container = readDatabagContainer();
+  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   function stateStoreIterator(bag) {
     if (!bag.Value) {
       return [];
