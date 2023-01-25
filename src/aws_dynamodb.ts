@@ -1,9 +1,10 @@
 import md5 from 'md5';
 import { AWS_DYNAMODB, AWS_FUNCTION, EVENT_DYNAMODB_STREAM } from './barbe-sls-lib/consts';
 import { applyDefaults, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate, asSyntax } from './barbe-std/utils';
+import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 const ddbStreamEventsKinesisOrphans = iterateBlocks(container, AWS_FUNCTION, (awsFuncBag) => {
     if(!awsFuncBag.Value) {

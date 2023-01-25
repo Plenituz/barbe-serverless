@@ -1,7 +1,8 @@
 import { listReferencedAWSRegions } from './barbe-sls-lib/helpers';
-import { CloudResourceBuilder, asTraversal, exportDatabags, cloudResourceRaw, readDatabagContainer } from './barbe-std/utils';
+import { CloudResourceBuilder, asTraversal, exportDatabags, cloudResourceRaw, readDatabagContainer, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 const dataResource = (params: Partial<CloudResourceBuilder> & { name: string, type: string }) => cloudResourceRaw({
     kind: 'data',

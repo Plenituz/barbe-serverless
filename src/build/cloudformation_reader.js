@@ -307,9 +307,19 @@
     };
     return __awsCredsCached;
   }
+  function formatStrForScript(str, mixins) {
+    str = JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
+    for (const mixinName in mixins) {
+      str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
+    }
+    return str;
+  }
 
   // cloudformation_reader/format_output.py
   var format_output_default = "import json\n\nwith open('cloudformation_output.json', 'r') as f:\n    data = json.load(f)\n\nformattedObj = {}\nfor i in data['Stacks'][0]['Outputs']:\n    formattedObj[i['OutputKey']] = i['OutputValue']\n\nformattedObj = {\n    'cloudformation_output_getter_result': {\n        '{{stackName}}': formattedObj\n    }\n}\nwith open('cloudformation_output.json', 'w') as f:\n    json.dump(formattedObj, f)";
+
+  // cloudformation_reader/format_template.py
+  var format_template_default = "import json\n\nwith open('cloudformation_resources.json', 'r') as f:\n    data = json.load(f)\n\nformattedObj = {\n    'cloudformation_resources_getter_result': {\n        '{{stackName}}': data['TemplateBody']['Resources']\n    }\n}\nwith open('cloudformation_resources.json', 'w') as f:\n    json.dump(formattedObj, f)";
 
   // cloudformation_reader/cloudformation_reader.ts
   var container = readDatabagContainer();
@@ -329,9 +339,6 @@
       throw new Error("cloudformation() used with more than 1 argument");
     }
     return asStr(token.Source.FunctionArgs[0]);
-  }
-  function formatStrForScript(str) {
-    return JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
   }
   var allCfOutputTokens = iterateAllBlocks(container, (bag) => {
     if (!bag.Value) {
@@ -366,7 +373,7 @@
             ENV AWS_PAGER=""
 
             RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
-            RUN printf ${formatStrForScript(format_output_default).replace("{{stackName}}", stackName)} > formatter.py
+            RUN printf ${formatStrForScript(format_output_default, { stackName })} > formatter.py
             RUN python formatter.py`,
         display_name: `Reading Cloudformation output - ${stackName}`,
         no_cache: true,
@@ -392,7 +399,7 @@
             ENV AWS_PAGER=""
 
             RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
-            RUN printf ${formatStrForScript(format_output_default).replace("{{stackName}}", stackName)} > formatter.py
+            RUN printf ${formatStrForScript(format_template_default, { stackName })} > formatter.py
             RUN python formatter.py`,
         display_name: `Reading Cloudformation template - ${stackName}`,
         no_cache: true,
@@ -406,7 +413,6 @@
     }))
   ];
   var result = applyTransformers(toExecute);
-  console.log("result", JSON.stringify(result), JSON.stringify(result.cloudformation_resources_getter_result));
   var databags = [];
   if (result.cloudformation_resources_getter_result) {
     databags.push(
@@ -416,6 +422,9 @@
           throw new Error(`Could not find cloudformation resources for stack ${stackName}`);
         }
         const root = result.cloudformation_resources_getter_result[stackName][0].Value;
+        if (!root) {
+          throw new Error(`Could not find cloudformation resources for stack ${stackName}`);
+        }
         return [{
           Type: "token_map",
           Name: `cloudformation_resources_${stackName}_token_map`,
@@ -435,6 +444,9 @@
           throw new Error(`Could not find cloudformation output for stack ${stackName}`);
         }
         const root = result.cloudformation_output_getter_result[stackName][0].Value;
+        if (!root) {
+          throw new Error(`Could not find cloudformation resources for stack ${stackName}`);
+        }
         return [{
           Type: "token_map",
           Name: `cloudformation_output_${stackName}_token_map`,

@@ -1,8 +1,9 @@
 import { AWS_KINESIS_STREAM } from './barbe-sls-lib/consts';
 import { applyDefaults, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { appendToTemplate, asBlock, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag } from './barbe-std/utils';
+import { appendToTemplate, asBlock, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 function awsKinesisStreamIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     if (!bag.Value) {

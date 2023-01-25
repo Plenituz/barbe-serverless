@@ -1,7 +1,8 @@
 import { listReferencedAWSRegions } from './barbe-sls-lib/helpers';
-import { exportDatabags, cloudResourceRaw, readDatabagContainer, iterateAllBlocks, asVal, asStr } from './barbe-std/utils';
+import { exportDatabags, cloudResourceRaw, readDatabagContainer, iterateAllBlocks, asVal, asStr, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 const allRegions = listReferencedAWSRegions(container)
 

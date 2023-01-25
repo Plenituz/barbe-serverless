@@ -803,15 +803,15 @@ export function onlyRunForLifecycleSteps(steps: string[]) {
 }
 
 export function barbeLifecycleStep(): string {
-    return os.getenv("BARBE_LIFECYCLE_STEP");
+    return os.getenv("BARBE_LIFECYCLE_STEP")!;
 }
 
 export function barbeCommand(): string {
-    return os.getenv("BARBE_COMMAND");
+    return os.getenv("BARBE_COMMAND")!;
 }
 
 export function barbeOutputDir(): string {
-    return os.getenv("BARBE_OUTPUT_DIR");
+    return os.getenv("BARBE_OUTPUT_DIR")!;
 }
 
 export function uniq<T>(arr: T[], key?: (item: T) => any): T[] {

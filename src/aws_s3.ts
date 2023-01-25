@@ -1,8 +1,9 @@
 import { AWS_FUNCTION, EVENT_S3, AWS_S3 } from './barbe-sls-lib/consts';
 import { applyDefaults, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { Databag, exportDatabags, readDatabagContainer, iterateBlocks, SugarCoatedDatabag, concatStrArr, asSyntax, asValArrayConst, CloudResourceBuilder, asStr, cloudResourceRaw, databag, appendToTemplate, asTraversal, asVal, asBlock } from './barbe-std/utils';
+import { Databag, exportDatabags, readDatabagContainer, iterateBlocks, SugarCoatedDatabag, concatStrArr, asSyntax, asValArrayConst, CloudResourceBuilder, asStr, cloudResourceRaw, databag, appendToTemplate, asTraversal, asVal, asBlock, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 
 function awsS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {

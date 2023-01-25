@@ -1,8 +1,9 @@
 import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3 } from './barbe-sls-lib/consts';
 import { applyDefaults, compileGlobalNamePrefix, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { appendToTemplate, asBlock, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, SyntaxToken, asValArrayConst, asFuncCall, asTraversal, asTemplate, asVal, uniq, asStr, cloudResourceRaw } from './barbe-std/utils';
+import { appendToTemplate, asBlock, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, SyntaxToken, asValArrayConst, asFuncCall, asTraversal, asTemplate, asVal, uniq, asStr, cloudResourceRaw, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 function lambdaRoleStatement(label: string, namePrefix: SyntaxToken) {
     let statements: any[] = [

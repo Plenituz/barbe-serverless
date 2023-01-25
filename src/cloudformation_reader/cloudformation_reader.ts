@@ -1,5 +1,5 @@
 import { readDatabagContainer, onlyRunForLifecycleSteps, SyntaxToken, iterateAllBlocks, accumulateTokens, asStr, SugarCoatedDatabag, applyTransformers, lookupTraversal, exportDatabags } from '../barbe-std/utils';
-import { getAwsCreds } from '../barbe-sls-lib/lib';
+import { formatStrForScript, getAwsCreds } from '../barbe-sls-lib/lib';
 import format_output from './format_output.py'
 import format_template from './format_template.py'
 
@@ -31,17 +31,6 @@ function extractStackName(token: SyntaxToken): string {
         throw new Error('cloudformation() used with more than 1 argument')
     }
     return asStr(token.Source!.FunctionArgs![0])
-}
-
-function formatStrForScript(str: string): string {
-    return JSON.stringify(str).replace(/\\n/g, "\\n")
-        .replace(/\\'/g, "\\'")
-        .replace(/\\"/g, '\\"')
-        .replace(/\\&/g, "\\&")
-        .replace(/\\r/g, "\\r")
-        .replace(/\\t/g, "\\t")
-        .replace(/\\b/g, "\\b")
-        .replace(/\\f/g, "\\f")
 }
 
 const allCfOutputTokens = iterateAllBlocks(container, (bag) => {
@@ -82,7 +71,7 @@ const toExecute: SugarCoatedDatabag[] = [
             ENV AWS_PAGER=""
 
             RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
-            RUN printf ${formatStrForScript(format_output).replace('{{stackName}}', stackName)} > formatter.py
+            RUN printf ${formatStrForScript(format_output, { stackName })} > formatter.py
             RUN python formatter.py`,
             display_name: `Reading Cloudformation output - ${stackName}`,
             no_cache: true,
@@ -109,7 +98,7 @@ const toExecute: SugarCoatedDatabag[] = [
             ENV AWS_PAGER=""
 
             RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
-            RUN printf ${formatStrForScript(format_output).replace('{{stackName}}', stackName)} > formatter.py
+            RUN printf ${formatStrForScript(format_template, { stackName })} > formatter.py
             RUN python formatter.py`,
             display_name: `Reading Cloudformation template - ${stackName}`,
             no_cache: true,
@@ -124,8 +113,6 @@ const toExecute: SugarCoatedDatabag[] = [
 ]
 
 const result = applyTransformers(toExecute)
-console.log('result', JSON.stringify(result), JSON.stringify(result.cloudformation_resources_getter_result))
-
 let databags: SugarCoatedDatabag[] = []
 
 if(result.cloudformation_resources_getter_result) {
@@ -136,6 +123,9 @@ if(result.cloudformation_resources_getter_result) {
                 throw new Error(`Could not find cloudformation resources for stack ${stackName}`)
             }
             const root = result.cloudformation_resources_getter_result[stackName][0].Value
+            if(!root) {
+                throw new Error(`Could not find cloudformation resources for stack ${stackName}`)
+            }
 
             return [{
                 Type: 'token_map',
@@ -157,6 +147,9 @@ if(result.cloudformation_output_getter_result) {
                 throw new Error(`Could not find cloudformation output for stack ${stackName}`)
             }
             const root = result.cloudformation_output_getter_result[stackName][0].Value
+            if(!root) {
+                throw new Error(`Could not find cloudformation resources for stack ${stackName}`)
+            }
 
             return [{
                 Type: 'token_map',

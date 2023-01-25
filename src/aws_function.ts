@@ -1,8 +1,9 @@
 import { AWS_FUNCTION } from "./barbe-sls-lib/consts";
 import { applyDefaults, compileBlockParam, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from "./barbe-sls-lib/lib";
-import { asStr, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, mergeTokens, asSyntax, asTraversal, appendToTemplate, asFuncCall, asBlock, asVal, asTemplate, asValArrayConst, SyntaxToken, appendToTraversal } from './barbe-std/utils';
+import { asStr, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, mergeTokens, asSyntax, asTraversal, appendToTemplate, asFuncCall, asBlock, asVal, asTemplate, asValArrayConst, SyntaxToken, appendToTraversal, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
+onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     if (!bag.Value) {
