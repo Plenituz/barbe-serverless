@@ -509,7 +509,7 @@
             Type: "object_const",
             Meta: {
               IsBlock: true,
-              BlockLabels: labels
+              Labels: labels
             },
             ObjectConst: Object.keys(block).map((key) => ({
               Key: key,
@@ -586,6 +586,15 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  function onlyRunForLifecycleSteps(steps) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+      quit();
+    }
+  }
+  function barbeLifecycleStep() {
+    return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
   function uniq(arr, key) {
     const seen = /* @__PURE__ */ new Set();
     return arr.filter((item) => {
@@ -656,6 +665,7 @@
 
   // aws_dynamodb.ts
   var container = readDatabagContainer();
+  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   var ddbStreamEventsKinesisOrphans = iterateBlocks(container, AWS_FUNCTION, (awsFuncBag) => {
     if (!awsFuncBag.Value) {
       return [];

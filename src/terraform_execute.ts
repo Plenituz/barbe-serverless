@@ -1,0 +1,144 @@
+import { TERRAFORM_EMPTY_EXECUTE, TERRAFORM_EXECUTE } from "./barbe-sls-lib/consts";
+import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir } from './barbe-std/utils';
+import { formatStrForScript, getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
+
+const container = readDatabagContainer()
+const outputDir = barbeOutputDir()
+onlyRunForLifecycleSteps(['apply', 'destroy'])
+
+function removeBarbeOutputPrefix(path: string): string {
+    if(path.startsWith(outputDir)) {
+        return path.slice(outputDir.length)
+    }
+    if(path.startsWith(`${outputDir}/`)) {
+        return path.slice(outputDir.length + 1)
+    }
+    return path
+}
+
+function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
+    if(!bag.Value) {
+        return [];
+    }
+    const block = asVal(bag.Value)
+    const mode = asStr(block.mode || 'apply')
+    if(mode !== 'apply' && mode !== 'destroy') {
+        throw new Error(`Invalid mode '${mode}' for terraform_execute block. Valid values are 'apply' and 'destroy'`)
+    }
+
+    const awsCreds = getAwsCreds()
+    const gcpToken = getGcpToken()
+    const dir = asStr(block.dir)
+    let readBack: string | null = null
+    if(mode === 'apply') {
+        readBack = removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
+    }
+    let vars = ''
+    if(block.variable_values) {
+        vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(' ')
+    }
+
+    return [{
+        Type: 'buildkit_run_in_container',
+        Name: `terraform_${mode}_${bag.Name}`,
+        Value: {
+            require_confirmation: block.require_confirmation || null,
+            display_name: block.display_name || null,
+            message: block.message || null,
+            no_cache: true,
+            dockerfile: `
+                FROM hashicorp/terraform:latest
+                RUN apk add jq
+
+                COPY --from=src ./${dir} /src
+                WORKDIR /src
+
+                ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
+
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv("AWS_REGION") || 'us-east-1'}"
+
+                RUN terraform init -input=false
+                RUN terraform ${mode} -auto-approve -input=false ${vars}
+                RUN terraform output -json > terraform_output.json
+                RUN cat terraform_output.json | jq 'to_entries | map({ "key": .key, "value": .value.value }) | { "terraform_execute_output": { "${bag.Name}": . } }' > terraform_output_${bag.Name}.json
+
+                # if a tf backend is defined, this file wont be created,
+                # but buildkit will still try to export it, so we create it here
+                ${mode === 'destroy' ? 'RUN touch tmp' : 'RUN touch terraform.tfstate'}`,
+            read_back: readBack,
+            exported_files: mode === 'destroy' ? 'tmp' : {
+                'terraform.tfstate': removeBarbeOutputPrefix(`${dir}/terraform.tfstate`),
+                '.terraform.lock.hcl': removeBarbeOutputPrefix(`${dir}/.terraform.lock.hcl`),
+                '.terraform': removeBarbeOutputPrefix(`${dir}/.terraform`),
+                [`terraform_output_${bag.Name}.json`]: removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
+            }
+        }
+    }]
+}
+
+
+function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
+    if(!bag.Value) {
+        return [];
+    }
+    const block = asVal(bag.Value)
+    const mode = asStr(block.mode || 'apply')
+    if(mode !== 'apply' && mode !== 'destroy') {
+        throw new Error(`Invalid mode '${mode}' for terraform_execute block. Valid values are 'apply' and 'destroy'`)
+    }
+
+    const awsCreds = getAwsCreds()
+    const gcpToken = getGcpToken()
+    const dir = asStr(block.dir)
+    const output = formatStrForScript(JSON.stringify({
+        terraform_empty_execute_output: {
+            [bag.Name]: true
+        }
+    }))
+    let vars = ''
+    if(block.variable_values) {
+        vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(' ')
+    }
+
+    return [{
+        Type: 'buildkit_run_in_container',
+        Name: `terraform_empty_${mode}_${bag.Name}`,
+        Value: {
+            require_confirmation: block.require_confirmation || null,
+            display_name: block.display_name || null,
+            message: block.message || null,
+            no_cache: true,
+            dockerfile: `
+                FROM hashicorp/terraform:latest
+
+                ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
+
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv("AWS_REGION") || 'us-east-1'}"
+
+                RUN printf ${formatStrForScript(asStr(block.template_json))} > ./template.tf.json
+                RUN terraform init -input=false
+                RUN terraform ${mode} -auto-approve -input=false ${vars}
+                RUN printf ${output} > tf_output.json
+
+                RUN touch tmp`,
+            read_back: [
+                `tf_empty_output_${bag.Name}.json`
+            ],
+            exported_files: {
+                'tf_output.json': `tf_empty_output_${bag.Name}.json`
+            }
+        }
+    }]
+}
+
+
+exportDatabags([
+    ...iterateBlocks(container, TERRAFORM_EXECUTE, terraformExecuteIterator).flat(),
+    ...iterateBlocks(container, TERRAFORM_EMPTY_EXECUTE, terraformEmptyExecuteIterator).flat()
+])

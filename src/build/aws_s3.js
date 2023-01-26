@@ -208,7 +208,7 @@
             Type: "object_const",
             Meta: {
               IsBlock: true,
-              BlockLabels: labels
+              Labels: labels
             },
             ObjectConst: Object.keys(block).map((key) => ({
               Key: key,
@@ -285,6 +285,15 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  function onlyRunForLifecycleSteps(steps) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+      quit();
+    }
+  }
+  function barbeLifecycleStep() {
+    return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
 
   // barbe-sls-lib/lib.ts
   function compileDefaults(container2, name) {
@@ -344,6 +353,7 @@
 
   // aws_s3.ts
   var container = readDatabagContainer();
+  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   function awsS3Iterator(bag) {
     if (!bag.Value) {
       return [];

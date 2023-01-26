@@ -309,8 +309,10 @@
   }
   function formatStrForScript(str, mixins) {
     str = JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
-    for (const mixinName in mixins) {
-      str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
+    if (mixins) {
+      for (const mixinName in mixins) {
+        str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
+      }
     }
     return str;
   }

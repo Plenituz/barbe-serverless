@@ -161,7 +161,7 @@ export function getAwsCreds(): AwsCreds {
     return __awsCredsCached;
 }
 
-export function formatStrForScript(str: string, mixins: { [name: string]: string }): string {
+export function formatStrForScript(str: string, mixins?: { [name: string]: string }): string {
     str = JSON.stringify(str).replace(/\\n/g, "\\n")
         .replace(/\\'/g, "\\'")
         .replace(/\\"/g, '\\"')
@@ -171,8 +171,10 @@ export function formatStrForScript(str: string, mixins: { [name: string]: string
         .replace(/\\b/g, "\\b")
         .replace(/\\f/g, "\\f")
 
-    for (const mixinName in mixins) {
-        str = str.replace(new RegExp(`{{${mixinName}}}`, 'g'), mixins[mixinName]);
+    if(mixins) {
+        for (const mixinName in mixins) {
+            str = str.replace(new RegExp(`{{${mixinName}}}`, 'g'), mixins[mixinName]);
+        }
     }
     return str;
 }

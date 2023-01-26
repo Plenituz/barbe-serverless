@@ -271,6 +271,15 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  function onlyRunForLifecycleSteps(steps) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+      quit();
+    }
+  }
+  function barbeLifecycleStep() {
+    return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
   function uniq(arr, key) {
     const seen = /* @__PURE__ */ new Set();
     return arr.filter((item) => {
@@ -338,6 +347,7 @@
 
   // aws_iam.ts
   var container = readDatabagContainer();
+  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   function lambdaRoleStatement(label, namePrefix) {
     let statements = [
       {

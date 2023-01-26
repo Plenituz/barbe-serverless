@@ -75,7 +75,11 @@ export type SyntaxToken = {
     Value?: any
 
     // can be used by any type, used to carry extra metadata if needed
-    Meta?: { [key: string]: any }
+    Meta?: { 
+        [key: string]: any
+        Labels?: string[]
+        IsBlock?: boolean
+     }
 
     //if TokenTypeObjectConst
     //we dont support having expression for key names yet
@@ -620,7 +624,7 @@ export function asBlock(arr: (LabeledBlockCreator | { [key: string]: any })[]) {
                     Type: "object_const",
                     Meta: { 
                         IsBlock: true,
-                        BlockLabels: labels
+                        Labels: labels
                     },
                     ObjectConst: Object.keys(block).map(key => ({
                         Key: key,

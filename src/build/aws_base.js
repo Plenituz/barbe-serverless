@@ -178,6 +178,15 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  function onlyRunForLifecycleSteps(steps) {
+    const step = barbeLifecycleStep();
+    if (!steps.includes(step)) {
+      quit();
+    }
+  }
+  function barbeLifecycleStep() {
+    return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
 
   // barbe-sls-lib/helpers.ts
   function listReferencedAWSRegions(container2) {
@@ -203,6 +212,7 @@
 
   // aws_base.ts
   var container = readDatabagContainer();
+  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   var dataResource = (params) => cloudResourceRaw({
     kind: "data",
     ...params

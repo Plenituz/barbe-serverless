@@ -206,7 +206,7 @@
             Type: "object_const",
             Meta: {
               IsBlock: true,
-              BlockLabels: labels
+              Labels: labels
             },
             ObjectConst: Object.keys(block).map((key) => ({
               Key: key,
