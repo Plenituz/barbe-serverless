@@ -72,6 +72,10 @@
     return os.getenv("BARBE_OUTPUT_DIR");
   }
 
+  // barbe-sls-lib/consts.ts
+  var BARBE_SLS_VERSION = "v0.1.1";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
+
   // default_terraform.ts
   var container = readDatabagContainer();
   var outputDir = barbeOutputDir();
@@ -104,7 +108,7 @@
   importComponents(
     container,
     [{
-      url: "https://hub.barbe.app/barbe-serverless/terraform_execute/v0.1.1/.js",
+      url: TERRAFORM_EXECUTE_URL,
       name: "default_terraform",
       input: databags
     }]

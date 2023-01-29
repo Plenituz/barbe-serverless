@@ -1,6 +1,8 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var FOR_EACH = "for_each";
+  var BARBE_SLS_VERSION = "v0.1.1";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -217,7 +219,7 @@
     return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -229,7 +231,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -272,6 +274,19 @@
       Parts: parts
     };
   }
+  function iterateAllBlocks(container2, func) {
+    const types = Object.keys(container2);
+    let output = [];
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          output.push(func(block));
+        }
+      }
+    }
+    return output;
+  }
   function iterateBlocks(container2, ofType, func) {
     if (!(ofType in container2)) {
       return [];
@@ -286,6 +301,12 @@
     return output;
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{

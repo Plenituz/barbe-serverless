@@ -1,5 +1,5 @@
 // this is for functions that any component could find useful
-import { DatabagContainer, SyntaxToken, asStr, mergeTokens, asVal, concatStrArr, asSyntax, cloudResourceRaw, asTraversal, CloudResourceBuilder, applyTransformers } from '../barbe-std/utils';
+import { DatabagContainer, SyntaxToken, asStr, mergeTokens, asVal, concatStrArr, asSyntax, cloudResourceRaw, asTraversal, CloudResourceBuilder, applyTransformers, Databag } from '../barbe-std/utils';
 
 export type DatabagObjVal = {
     [key: string]: SyntaxToken | undefined 
@@ -72,24 +72,29 @@ export function compileBlockParam(blockVal: DatabagObjVal, blockName: string): D
 }
 
 //pre configured cloud resource factory, handles cloud resource id/dir and provider setting based on region parameter
-export function preConfCloudResourceFactory(blockVal: DatabagObjVal, kind: string, preconf?: any) {
+export function preConfCloudResourceFactory(blockVal: DatabagObjVal, kind: string, preconf?: any, bagPreconf?: any) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : undefined
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : undefined
-    return (type: string, name: string, value: any) => cloudResourceRaw({
-        kind,
-        dir: cloudResourceDir,
-        id: cloudResourceId,
-        type,
-        name,
-        value: {
-            provider: blockVal.region ? asTraversal(`aws.${asStr(blockVal.region)}`) : undefined,
+    
+    return (type: string, name: string, value: any) => {
+        value = {
+            provider: blockVal.region && type.includes('aws') ? asTraversal(`aws.${asStr(blockVal.region)}`) : undefined,
             ...preconf,
             ...value,
         }
-    })
+        return cloudResourceRaw({
+            kind,
+            dir: cloudResourceDir,
+            id: cloudResourceId,
+            type,
+            name,
+            value: Object.entries(value).filter(([_, v]) => v !== null && v !== undefined).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
+            ...bagPreconf
+        })
+    }
 }
 
-export function preConfTraversalTransform(blockVal: DatabagObjVal) {
+export function preConfTraversalTransform(blockVal: Databag) {
     return (name: string, transforms: {[traversal: string]: string}) => ({
         Name: `${blockVal.Name}_${name}`,
         Type: 'traversal_transform',
@@ -161,20 +166,9 @@ export function getAwsCreds(): AwsCreds {
     return __awsCredsCached;
 }
 
-export function formatStrForScript(str: string, mixins?: { [name: string]: string }): string {
-    str = JSON.stringify(str).replace(/\\n/g, "\\n")
-        .replace(/\\'/g, "\\'")
-        .replace(/\\"/g, '\\"')
-        .replace(/\\&/g, "\\&")
-        .replace(/\\r/g, "\\r")
-        .replace(/\\t/g, "\\t")
-        .replace(/\\b/g, "\\b")
-        .replace(/\\f/g, "\\f")
-
-    if(mixins) {
-        for (const mixinName in mixins) {
-            str = str.replace(new RegExp(`{{${mixinName}}}`, 'g'), mixins[mixinName]);
-        }
+export function applyMixins(str: string, mixins: { [name: string]: string }): string {
+    for (const mixinName in mixins) {
+        str = str.replace(new RegExp(`{{${mixinName}}}`, 'g'), mixins[mixinName]);
     }
     return str;
 }

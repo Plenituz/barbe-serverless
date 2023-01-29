@@ -11,7 +11,7 @@ function awsKinesisStreamIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value!);
     const cloudResource = preConfCloudResourceFactory(block, 'resource')
-    const traversalTransform = preConfTraversalTransform(block)
+    const traversalTransform = preConfTraversalTransform(bag)
 
     let databags: SugarCoatedDatabag[] = [
         traversalTransform('aws_kinesis_streams_traversal_transform', {

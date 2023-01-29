@@ -14,7 +14,7 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : undefined
     const cloudResource = preConfCloudResourceFactory(block, 'resource')
     const cloudData = preConfCloudResourceFactory(block, 'data')
-    const traversalTransform = preConfTraversalTransform(block)
+    const traversalTransform = preConfTraversalTransform(bag)
 
     const dotPackage = compileBlockParam(block, 'package')
     const packageLocation = dotPackage.packaged_file || `${cloudResourceDir ? `${cloudResourceDir}/` : ''}.package/${bag.Name}_lambda_package.zip`

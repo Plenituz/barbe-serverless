@@ -286,6 +286,8 @@
   var AWS_FUNCTION = "aws_function";
   var EVENT_DYNAMODB_STREAM = "event_dynamodb_stream";
   var AWS_DYNAMODB = "aws_dynamodb";
+  var BARBE_SLS_VERSION = "v0.1.1";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -399,7 +401,7 @@
     return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -411,7 +413,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -528,6 +530,19 @@
       })
     };
   }
+  function iterateAllBlocks(container2, func) {
+    const types = Object.keys(container2);
+    let output = [];
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          output.push(func(block));
+        }
+      }
+    }
+    return output;
+  }
   function iterateBlocks(container2, ofType, func) {
     if (!(ofType in container2)) {
       return [];
@@ -573,6 +588,12 @@
     };
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{
@@ -639,21 +660,25 @@
   function compileNamePrefix(blockVal) {
     return concatStrArr(blockVal.name_prefix || asSyntax([]));
   }
-  function preConfCloudResourceFactory(blockVal, kind, preconf) {
+  function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
-    return (type, name, value) => cloudResourceRaw({
-      kind,
-      dir: cloudResourceDir,
-      id: cloudResourceId,
-      type,
-      name,
-      value: {
-        provider: blockVal.region ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
+    return (type, name, value) => {
+      value = {
+        provider: blockVal.region && type.includes("aws") ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
         ...preconf,
         ...value
-      }
-    });
+      };
+      return cloudResourceRaw({
+        kind,
+        dir: cloudResourceDir,
+        id: cloudResourceId,
+        type,
+        name,
+        value: Object.entries(value).filter(([_, v]) => v !== null && v !== void 0).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
+        ...bagPreconf
+      });
+    };
   }
   function preConfTraversalTransform(blockVal) {
     return (name, transforms) => ({
@@ -734,7 +759,7 @@
     const provider = regions.length === 0 ? void 0 : asTraversal(`aws.${asStr(regions[0])}`);
     const dotAutoScaling = asVal(mergeTokens(block.auto_scaling?.ArrayConst || []));
     const cloudResource = preConfCloudResourceFactory(block, "resource", { provider });
-    const traversalTransform = preConfTraversalTransform(block);
+    const traversalTransform = preConfTraversalTransform(bag);
     const indexResourceName = (gsi, suffix) => {
       let toHash = asStr(gsi.hash_key);
       if (gsi.range_key) {

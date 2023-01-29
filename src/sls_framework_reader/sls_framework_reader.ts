@@ -1,6 +1,6 @@
 import { accumulateTokens, asStr, iterateAllBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SyntaxToken, SugarCoatedDatabag, applyTransformers, uniq, lookupTraversal, exportDatabags } from '../barbe-std/utils';
 import md5 from 'md5';
-import { formatStrForScript, getAwsCreds } from '../barbe-sls-lib/lib';
+import { applyMixins, getAwsCreds } from '../barbe-sls-lib/lib';
 import formatter_script from './formatter.template.js'
 
 const container = readDatabagContainer()
@@ -67,6 +67,9 @@ const toExecute = uniqSlsDirectories.map(dir => {
         Name: `sls_framework_getter_${dirHash}`,
         Value: {
             display_name: `Reading sls framework - ${dir}`,
+            input_files: {
+                'formatter.js': applyMixins(formatter_script, { dirHash })
+            },
             dockerfile: `
                 FROM node:${nodeVersion}-alpine
 
@@ -83,7 +86,7 @@ const toExecute = uniqSlsDirectories.map(dir => {
                 ENV SLS_WARNING_DISABLE="*"
 
                 RUN serverless print --format json > sls_framework.json
-                RUN printf ${formatStrForScript(formatter_script, { dirHash })} > formatter.js
+                COPY --from=src formatter.js formatter.js
                 RUN node formatter.js
             `,
             exported_files: {

@@ -85,7 +85,7 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const dotAutoScaling = asVal(mergeTokens(block.auto_scaling?.ArrayConst || []))
 
     const cloudResource = preConfCloudResourceFactory(block, 'resource', { provider })
-    const traversalTransform = preConfTraversalTransform(block)
+    const traversalTransform = preConfTraversalTransform(bag)
     const indexResourceName = (gsi: DatabagObjVal, suffix: string) => {
         let toHash = asStr(gsi.hash_key!)
         if(gsi.range_key) {

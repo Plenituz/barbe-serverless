@@ -85,7 +85,7 @@
     }
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -97,7 +97,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -165,6 +165,12 @@
     };
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{

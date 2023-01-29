@@ -491,7 +491,7 @@
     }
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -503,7 +503,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -529,6 +529,12 @@
     return output;
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{
@@ -601,12 +607,9 @@
     };
     return __awsCredsCached;
   }
-  function formatStrForScript(str, mixins) {
-    str = JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
-    if (mixins) {
-      for (const mixinName in mixins) {
-        str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
-      }
+  function applyMixins(str, mixins) {
+    for (const mixinName in mixins) {
+      str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
     }
     return str;
   }
@@ -669,6 +672,9 @@ fs.writeFileSync('sls_framework.json', JSON.stringify(formattedOutput))`;
       Name: `sls_framework_getter_${dirHash}`,
       Value: {
         display_name: `Reading sls framework - ${dir}`,
+        input_files: {
+          "formatter.js": applyMixins(formatter_template_default, { dirHash })
+        },
         dockerfile: `
                 FROM node:${nodeVersion}-alpine
 
@@ -685,7 +691,7 @@ fs.writeFileSync('sls_framework.json', JSON.stringify(formattedOutput))`;
                 ENV SLS_WARNING_DISABLE="*"
 
                 RUN serverless print --format json > sls_framework.json
-                RUN printf ${formatStrForScript(formatter_template_default, { dirHash })} > formatter.js
+                COPY --from=src formatter.js formatter.js
                 RUN node formatter.js
             `,
         exported_files: {

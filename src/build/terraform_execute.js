@@ -2,6 +2,8 @@
   // barbe-sls-lib/consts.ts
   var TERRAFORM_EXECUTE = "terraform_execute";
   var TERRAFORM_EMPTY_EXECUTE = "terraform_empty_execute";
+  var BARBE_SLS_VERSION = "v0.1.1";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -115,7 +117,7 @@
     return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -127,7 +129,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -138,6 +140,19 @@
     } else {
       return token;
     }
+  }
+  function iterateAllBlocks(container2, func) {
+    const types = Object.keys(container2);
+    let output = [];
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          output.push(func(block));
+        }
+      }
+    }
+    return output;
   }
   function iterateBlocks(container2, ofType, func) {
     if (!(ofType in container2)) {
@@ -153,6 +168,12 @@
     return output;
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{
@@ -230,15 +251,6 @@
       session_token: asStr(credsObj.session_token)
     };
     return __awsCredsCached;
-  }
-  function formatStrForScript(str, mixins) {
-    str = JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
-    if (mixins) {
-      for (const mixinName in mixins) {
-        str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
-      }
-    }
-    return str;
   }
 
   // terraform_execute.ts
@@ -326,11 +338,6 @@
     const awsCreds = getAwsCreds();
     const gcpToken = getGcpToken();
     const dir = asStr(block.dir);
-    const output = formatStrForScript(JSON.stringify({
-      terraform_empty_execute_output: {
-        [bag.Name]: true
-      }
-    }));
     let vars = "";
     if (block.variable_values) {
       vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(" ");
@@ -343,6 +350,14 @@
         display_name: block.display_name || null,
         message: block.message || null,
         no_cache: true,
+        input_files: {
+          "tf_output.json": JSON.stringify({
+            terraform_empty_execute_output: {
+              [bag.Name]: true
+            }
+          }),
+          "template.tf.json": asStr(block.template_json)
+        },
         dockerfile: `
                 FROM hashicorp/terraform:latest
 
@@ -353,12 +368,11 @@
                 ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
 
-                RUN printf ${formatStrForScript(asStr(block.template_json))} > ./template.tf.json
+                COPY --from=src template.tf.json template.tf.json
                 RUN terraform init -input=false
                 RUN terraform ${mode} -auto-approve -input=false ${vars}
-                RUN printf ${output} > tf_output.json
 
-                RUN touch tmp`,
+                COPY --from=src tf_output.json tf_output.json`,
         read_back: [
           `tf_empty_output_${bag.Name}.json`
         ],

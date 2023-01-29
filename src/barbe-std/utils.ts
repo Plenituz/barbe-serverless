@@ -491,7 +491,8 @@ export function asValArrayConst(token: SyntaxToken): any[] {
 }
 
 export function asSyntax(token: any): SyntaxToken {
-    if (typeof token === 'object' && token.hasOwnProperty('Type') && (token.Type in SyntaxTokenTypes)) {
+    //typeof null === 'object' so we need to check for null first
+    if (typeof token === 'object' && token !== null && token.hasOwnProperty('Type') && (token.Type in SyntaxTokenTypes)) {
         return token;
     } else if (typeof token === 'string' || typeof token === 'number' || typeof token === 'boolean') {
         return {
@@ -503,7 +504,7 @@ export function asSyntax(token: any): SyntaxToken {
             Type: "array_const",
             ArrayConst: token.filter(child => child !== null).map(child => asSyntax(child))
         };
-    } else if (typeof token === 'object') {
+    } else if (typeof token === 'object' && token !== null) {
         return {
             Type: "object_const",
             ObjectConst: Object.keys(token).map(key => ({
@@ -705,7 +706,13 @@ export function cloudResourceRaw(params: CloudResourceBuilder): Databag {
     }
 }
 
-export function exportDatabags(bags: (Databag | SugarCoatedDatabag)[]) {
+export function exportDatabags(bags: (Databag | SugarCoatedDatabag)[] | DatabagContainer) {
+    if (!Array.isArray(bags)) {
+        bags = iterateAllBlocks(bags, bag => bag);
+    }
+    if(bags.length === 0) {
+        return;
+    }
     const resp = barbeRpcCall({
         method: "exportDatabags",
         params: [{
@@ -715,13 +722,6 @@ export function exportDatabags(bags: (Databag | SugarCoatedDatabag)[]) {
     if (isFailure(resp)) {
         throw new Error(resp.error)
     }
-}
-
-export type ImportComponentInput = {
-    url: string
-    name: string
-    copyFromContainer?: string[]
-    input?: SugarCoatedDatabag[]
 }
 
 export function applyTransformers(input: SugarCoatedDatabag[]): DatabagContainer {
@@ -735,6 +735,13 @@ export function applyTransformers(input: SugarCoatedDatabag[]): DatabagContainer
         throw new Error(resp.error)
     }
     return resp.result;
+}
+
+export type ImportComponentInput = {
+    url: string
+    name: string
+    copyFromContainer?: string[]
+    input?: SugarCoatedDatabag[]
 }
 
 export function importComponents(container: DatabagContainer, components: ImportComponentInput[]): DatabagContainer {
@@ -795,10 +802,6 @@ export function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"))
 }
 
-export function readState() {
-    return JSON.parse(os.file.readFile("__barbe_state.json"))
-}
-
 export function onlyRunForLifecycleSteps(steps: string[]) {
     const step = barbeLifecycleStep();
     if (!steps.includes(step)) {
@@ -831,6 +834,8 @@ export function uniq<T>(arr: T[], key?: (item: T) => any): T[] {
 }
 
 export const BarbeState = {
+    readState: () => JSON.parse(os.file.readFile("__barbe_state.json")),
+
     setValue: (key: string, value: any) => ({
         Type: 'barbe_state(set_value)',
         Name: key,

@@ -1,5 +1,5 @@
 import { readDatabagContainer, onlyRunForLifecycleSteps, SyntaxToken, iterateAllBlocks, accumulateTokens, asStr, SugarCoatedDatabag, applyTransformers, lookupTraversal, exportDatabags } from '../barbe-std/utils';
-import { formatStrForScript, getAwsCreds } from '../barbe-sls-lib/lib';
+import { applyMixins, getAwsCreds } from '../barbe-sls-lib/lib';
 import format_output from './format_output.py'
 import format_template from './format_template.py'
 
@@ -61,18 +61,21 @@ const toExecute: SugarCoatedDatabag[] = [
         Type: 'buildkit_run_in_container',
         Name: `cloudformation_output_getter_${stackName}`,
         Value: {
+            input_files: {
+                'formatter.py': applyMixins(format_output, { stackName })
+            },
             dockerfile: `
-            FROM amazon/aws-cli:latest
+                FROM amazon/aws-cli:latest
 
-            ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-            ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-            ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-            ENV AWS_REGION="${os.getenv('AWS_REGION') || 'us-east-1'}"
-            ENV AWS_PAGER=""
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv('AWS_REGION') || 'us-east-1'}"
+                ENV AWS_PAGER=""
 
-            RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
-            RUN printf ${formatStrForScript(format_output, { stackName })} > formatter.py
-            RUN python formatter.py`,
+                RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
+                COPY --from=src formatter.py formatter.py
+                RUN python formatter.py`,
             display_name: `Reading Cloudformation output - ${stackName}`,
             no_cache: true,
             exported_files: {
@@ -88,18 +91,21 @@ const toExecute: SugarCoatedDatabag[] = [
         Type: 'buildkit_run_in_container',
         Name: `cloudformation_output_getter_${stackName}`,
         Value: {
+            input_files: {
+                'formatter.py': applyMixins(format_template, { stackName })
+            },
             dockerfile: `
-            FROM amazon/aws-cli:latest
+                FROM amazon/aws-cli:latest
 
-            ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-            ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-            ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-            ENV AWS_REGION="${os.getenv('AWS_REGION') || 'us-east-1'}"
-            ENV AWS_PAGER=""
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv('AWS_REGION') || 'us-east-1'}"
+                ENV AWS_PAGER=""
 
-            RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
-            RUN printf ${formatStrForScript(format_template, { stackName })} > formatter.py
-            RUN python formatter.py`,
+                RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
+                COPY --from=src formatter.py formatter.py
+                RUN python formatter.py`,
             display_name: `Reading Cloudformation template - ${stackName}`,
             no_cache: true,
             exported_files: {

@@ -211,7 +211,7 @@
     }
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -223,7 +223,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -249,6 +249,12 @@
     return output;
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{
@@ -307,12 +313,9 @@
     };
     return __awsCredsCached;
   }
-  function formatStrForScript(str, mixins) {
-    str = JSON.stringify(str).replace(/\\n/g, "\\n").replace(/\\'/g, "\\'").replace(/\\"/g, '\\"').replace(/\\&/g, "\\&").replace(/\\r/g, "\\r").replace(/\\t/g, "\\t").replace(/\\b/g, "\\b").replace(/\\f/g, "\\f");
-    if (mixins) {
-      for (const mixinName in mixins) {
-        str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
-      }
+  function applyMixins(str, mixins) {
+    for (const mixinName in mixins) {
+      str = str.replace(new RegExp(`{{${mixinName}}}`, "g"), mixins[mixinName]);
     }
     return str;
   }
@@ -365,18 +368,21 @@
       Type: "buildkit_run_in_container",
       Name: `cloudformation_output_getter_${stackName}`,
       Value: {
+        input_files: {
+          "formatter.py": applyMixins(format_output_default, { stackName })
+        },
         dockerfile: `
-            FROM amazon/aws-cli:latest
+                FROM amazon/aws-cli:latest
 
-            ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-            ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-            ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-            ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
-            ENV AWS_PAGER=""
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
+                ENV AWS_PAGER=""
 
-            RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
-            RUN printf ${formatStrForScript(format_output_default, { stackName })} > formatter.py
-            RUN python formatter.py`,
+                RUN aws cloudformation describe-stacks --stack-name ${stackName} --output json > cloudformation_output.json
+                COPY --from=src formatter.py formatter.py
+                RUN python formatter.py`,
         display_name: `Reading Cloudformation output - ${stackName}`,
         no_cache: true,
         exported_files: {
@@ -391,18 +397,21 @@
       Type: "buildkit_run_in_container",
       Name: `cloudformation_output_getter_${stackName}`,
       Value: {
+        input_files: {
+          "formatter.py": applyMixins(format_template_default, { stackName })
+        },
         dockerfile: `
-            FROM amazon/aws-cli:latest
+                FROM amazon/aws-cli:latest
 
-            ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-            ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-            ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-            ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
-            ENV AWS_PAGER=""
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
+                ENV AWS_PAGER=""
 
-            RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
-            RUN printf ${formatStrForScript(format_template_default, { stackName })} > formatter.py
-            RUN python formatter.py`,
+                RUN aws cloudformation get-template --stack-name ${stackName} --output json > cloudformation_resources.json
+                COPY --from=src formatter.py formatter.py
+                RUN python formatter.py`,
         display_name: `Reading Cloudformation template - ${stackName}`,
         no_cache: true,
         exported_files: {

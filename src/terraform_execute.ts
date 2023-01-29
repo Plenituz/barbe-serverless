@@ -1,6 +1,6 @@
 import { TERRAFORM_EMPTY_EXECUTE, TERRAFORM_EXECUTE } from "./barbe-sls-lib/consts";
 import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir } from './barbe-std/utils';
-import { formatStrForScript, getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
+import { getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
 
 const container = readDatabagContainer()
 const outputDir = barbeOutputDir()
@@ -93,11 +93,6 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
     const awsCreds = getAwsCreds()
     const gcpToken = getGcpToken()
     const dir = asStr(block.dir)
-    const output = formatStrForScript(JSON.stringify({
-        terraform_empty_execute_output: {
-            [bag.Name]: true
-        }
-    }))
     let vars = ''
     if(block.variable_values) {
         vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(' ')
@@ -111,6 +106,14 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
             display_name: block.display_name || null,
             message: block.message || null,
             no_cache: true,
+            input_files: {
+                'tf_output.json': JSON.stringify({
+                    terraform_empty_execute_output: {
+                        [bag.Name]: true
+                    }
+                }),
+                'template.tf.json': asStr(block.template_json)
+            },
             dockerfile: `
                 FROM hashicorp/terraform:latest
 
@@ -121,12 +124,11 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
                 ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || 'us-east-1'}"
 
-                RUN printf ${formatStrForScript(asStr(block.template_json))} > ./template.tf.json
+                COPY --from=src template.tf.json template.tf.json
                 RUN terraform init -input=false
                 RUN terraform ${mode} -auto-approve -input=false ${vars}
-                RUN printf ${output} > tf_output.json
 
-                RUN touch tmp`,
+                COPY --from=src tf_output.json tf_output.json`,
             read_back: [
                 `tf_empty_output_${bag.Name}.json`
             ],

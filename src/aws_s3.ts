@@ -12,7 +12,7 @@ function awsS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value!);
     const cloudResource = preConfCloudResourceFactory(block, 'resource')
-    const traversalTransform = preConfTraversalTransform(block)
+    const traversalTransform = preConfTraversalTransform(bag)
 
     //list all the event_s3 blocks on aws_function blocks that are refering this aws_s3 block
     const allEventS3 = iterateBlocks(container, AWS_FUNCTION, (awsFuncBag) => {

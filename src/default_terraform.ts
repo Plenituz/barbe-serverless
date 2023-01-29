@@ -1,4 +1,5 @@
 import { readDatabagContainer, onlyRunForLifecycleSteps, importComponents, barbeLifecycleStep, SugarCoatedDatabag, barbeOutputDir } from './barbe-std/utils';
+import { TERRAFORM_EXECUTE_URL } from './barbe-sls-lib/consts';
 
 
 const container = readDatabagContainer()
@@ -35,7 +36,7 @@ switch(barbeLifecycleStep()) {
 importComponents(
     container, 
     [{
-        url: 'https://hub.barbe.app/barbe-serverless/terraform_execute/v0.1.1/.js',
+        url: TERRAFORM_EXECUTE_URL,
         name: 'default_terraform',
         input: databags
     }]

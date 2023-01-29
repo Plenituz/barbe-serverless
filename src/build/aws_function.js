@@ -1,6 +1,8 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var AWS_FUNCTION = "aws_function";
+  var BARBE_SLS_VERSION = "v0.1.1";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -114,7 +116,7 @@
     return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
-    if (typeof token === "object" && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
+    if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
     } else if (typeof token === "string" || typeof token === "number" || typeof token === "boolean") {
       return {
@@ -126,7 +128,7 @@
         Type: "array_const",
         ArrayConst: token.filter((child) => child !== null).map((child) => asSyntax(child))
       };
-    } else if (typeof token === "object") {
+    } else if (typeof token === "object" && token !== null) {
       return {
         Type: "object_const",
         ObjectConst: Object.keys(token).map((key) => ({
@@ -250,6 +252,19 @@
       })
     };
   }
+  function iterateAllBlocks(container2, func) {
+    const types = Object.keys(container2);
+    let output = [];
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          output.push(func(block));
+        }
+      }
+    }
+    return output;
+  }
   function iterateBlocks(container2, ofType, func) {
     if (!(ofType in container2)) {
       return [];
@@ -295,6 +310,12 @@
     };
   }
   function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
     const resp = barbeRpcCall({
       method: "exportDatabags",
       params: [{
@@ -353,21 +374,25 @@
   function compileBlockParam(blockVal, blockName) {
     return asVal(mergeTokens((blockVal[blockName] || asSyntax([])).ArrayConst || []));
   }
-  function preConfCloudResourceFactory(blockVal, kind, preconf) {
+  function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
-    return (type, name, value) => cloudResourceRaw({
-      kind,
-      dir: cloudResourceDir,
-      id: cloudResourceId,
-      type,
-      name,
-      value: {
-        provider: blockVal.region ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
+    return (type, name, value) => {
+      value = {
+        provider: blockVal.region && type.includes("aws") ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
         ...preconf,
         ...value
-      }
-    });
+      };
+      return cloudResourceRaw({
+        kind,
+        dir: cloudResourceDir,
+        id: cloudResourceId,
+        type,
+        name,
+        value: Object.entries(value).filter(([_, v]) => v !== null && v !== void 0).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
+        ...bagPreconf
+      });
+    };
   }
   function preConfTraversalTransform(blockVal) {
     return (name, transforms) => ({
@@ -389,7 +414,7 @@
     const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : void 0;
     const cloudResource = preConfCloudResourceFactory(block, "resource");
     const cloudData = preConfCloudResourceFactory(block, "data");
-    const traversalTransform = preConfTraversalTransform(block);
+    const traversalTransform = preConfTraversalTransform(bag);
     const dotPackage = compileBlockParam(block, "package");
     const packageLocation = dotPackage.packaged_file || `${cloudResourceDir ? `${cloudResourceDir}/` : ""}.package/${bag.Name}_lambda_package.zip`;
     const dotEnvironment = compileBlockParam(block, "environment");

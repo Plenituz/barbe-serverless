@@ -10,3 +10,6 @@ export const STATE_STORE = 'state_store'
 export const FOR_EACH = 'for_each'
 export const TERRAFORM_EXECUTE = 'terraform_execute'
 export const TERRAFORM_EMPTY_EXECUTE = 'terraform_empty_execute'
+
+const BARBE_SLS_VERSION = 'v0.1.1'
+export const TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`
