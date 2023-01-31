@@ -809,11 +809,27 @@ export function onlyRunForLifecycleSteps(steps: string[]) {
     }
 }
 
-export function barbeLifecycleStep(): string {
+type LifecycleStep = 'pre_generate' |
+    'generate' |
+    'post_generate' |
+    'pre_do' |
+    'pre_apply' |
+    'apply' |
+    'post_apply' |
+    'pre_destroy' |
+    'destroy' |
+    'post_destroy' |
+    'post_do'
+
+//this is the current step being run, even if the user is running 'barbe apply', the step might be 'generate'
+export function barbeLifecycleStep(): LifecycleStep {
     return os.getenv("BARBE_LIFECYCLE_STEP")!;
 }
 
-export function barbeCommand(): string {
+type Command = 'generate' | 'apply' | 'destroy'
+//this is the command that barbe is 'aiming for'
+//meaning even if we're in the 'generate' lifecycle step, the command might be 'apply'
+export function barbeCommand(): Command {
     return os.getenv("BARBE_COMMAND")!;
 }
 

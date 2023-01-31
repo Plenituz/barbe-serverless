@@ -564,7 +564,6 @@
       return [];
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
-    console.log("awsIamLambdaRoleIterator", JSON.stringify(block.cloudresource_dir));
     const cloudResourceFactory = (kind) => preConfCloudResourceFactory(block, kind);
     return defineRole({
       cloudResourceFactory,
