@@ -215,9 +215,6 @@
         throw new Error(`cannot turn token type '${token.Type}' into a value`);
     }
   }
-  function asValArrayConst(token) {
-    return asVal(token).map((item) => asVal(item));
-  }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
@@ -267,11 +264,9 @@
     };
   }
   function concatStrArr(token) {
-    const arr = asValArrayConst(token);
-    const parts = arr.map((item) => asTemplateStr(item).Parts || []).flat();
     return {
       Type: "template",
-      Parts: parts
+      Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
     };
   }
   function iterateAllBlocks(container2, func) {

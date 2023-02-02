@@ -102,22 +102,6 @@ export function preConfTraversalTransform(blockVal: Databag) {
     })
 }
 
-export function isSimpleTemplate(token: SyntaxToken | string | undefined): boolean {
-    if(!token) {
-        return false;
-    }
-    if(typeof token === 'string' || token.Type === 'literal_value') {
-        return true;
-    }
-    if(token.Type !== 'template') {
-        return false;
-    }
-    if(!token.Parts) {
-        return true;
-    }
-    return token.Parts.every(isSimpleTemplate);
-}
-
 //TODO we should group the requests for gcs token and aws creds together
 //to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
 let __gcpTokenCached = '';

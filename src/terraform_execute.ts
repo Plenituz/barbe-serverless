@@ -1,5 +1,5 @@
-import { TERRAFORM_EMPTY_EXECUTE, TERRAFORM_EXECUTE } from "./barbe-sls-lib/consts";
-import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir } from './barbe-std/utils';
+import { TERRAFORM_EMPTY_EXECUTE, TERRAFORM_EXECUTE, TERRAFORM_EXECUTE_GET_OUTPUT } from "./barbe-sls-lib/consts";
+import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir, applyTransformers } from './barbe-std/utils';
 import { getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
 
 const container = readDatabagContainer()
@@ -139,8 +139,57 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
     }]
 }
 
+function terraformExecuteGetOutputIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
+    if(!bag.Value) {
+        return [];
+    }
+    const block = asVal(bag.Value)
 
-exportDatabags([
+    const awsCreds = getAwsCreds()
+    const gcpToken = getGcpToken()
+    const dir = asStr(block.dir)
+    let vars = ''
+    if(block.variable_values) {
+        vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(' ')
+    }
+
+    return [{
+        Type: 'buildkit_run_in_container',
+        Name: `terraform_get_output_${bag.Name}`,
+        Value: {
+            display_name: block.display_name || null,
+            message: block.message || null,
+            no_cache: true,
+            dockerfile: `
+                FROM hashicorp/terraform:latest
+                RUN apk add jq
+
+                COPY --from=src ./${dir} /src
+                WORKDIR /src
+
+                ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
+
+                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_REGION="${os.getenv("AWS_REGION") || 'us-east-1'}"
+
+                RUN terraform init -input=false
+                RUN terraform output -json > terraform_output.json
+                RUN cat terraform_output.json | jq 'to_entries | map({ "key": .key, "value": .value.value }) | { "terraform_execute_output": { "${bag.Name}": . } }' > terraform_output_${bag.Name}.json
+                RUN touch terraform_output_${bag.Name}.json`,
+            read_back: [
+                removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
+            ],
+            exported_files: {
+                [`terraform_output_${bag.Name}.json`]: removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
+            }
+        }
+    }]
+}
+
+exportDatabags(applyTransformers([
     ...iterateBlocks(container, TERRAFORM_EXECUTE, terraformExecuteIterator).flat(),
+    ...iterateBlocks(container, TERRAFORM_EXECUTE_GET_OUTPUT, terraformExecuteGetOutputIterator).flat(),
     ...iterateBlocks(container, TERRAFORM_EMPTY_EXECUTE, terraformEmptyExecuteIterator).flat()
-])
+]))

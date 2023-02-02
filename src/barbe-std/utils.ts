@@ -466,6 +466,22 @@ export function mergeTokens(values: SyntaxToken[]): SyntaxToken {
     }
 }
 
+export function isSimpleTemplate(token: SyntaxToken | string | undefined): boolean {
+    if(!token) {
+        return false;
+    }
+    if(typeof token === 'string' || token.Type === 'literal_value') {
+        return true;
+    }
+    if(token.Type !== 'template') {
+        return false;
+    }
+    if(!token.Parts) {
+        return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+}
+
 export function asVal(token: SyntaxToken): any {
     switch (token.Type) {
         case "template":
@@ -585,11 +601,9 @@ export function asTemplateStr(arr: (string | SyntaxToken)[] | (string | SyntaxTo
 
 //string concatenation for syntax tokens
 export function concatStrArr(token: SyntaxToken): SyntaxToken {
-    const arr = asValArrayConst(token);
-    const parts = arr.map(item => asTemplateStr(item).Parts || []).flat();
     return {
         Type: "template",
-        Parts: parts
+        Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
     }
 }
 

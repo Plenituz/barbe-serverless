@@ -1,4 +1,3 @@
-import { applyDefaults } from './barbe-sls-lib/lib';
 import { readDatabagContainer, onlyRunForLifecycleSteps, SugarCoatedDatabag, iterateBlocks, exportDatabags, iterateAllBlocks } from './barbe-std/utils';
 
 

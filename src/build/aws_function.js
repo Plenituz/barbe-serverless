@@ -200,11 +200,9 @@
     };
   }
   function concatStrArr(token) {
-    const arr = asValArrayConst(token);
-    const parts = arr.map((item) => asTemplateStr(item).Parts || []).flat();
     return {
       Type: "template",
-      Parts: parts
+      Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
     };
   }
   function appendToTemplate(source, toAdd) {
@@ -416,7 +414,7 @@
     const cloudData = preConfCloudResourceFactory(block, "data");
     const traversalTransform = preConfTraversalTransform(bag);
     const dotPackage = compileBlockParam(block, "package");
-    const packageLocation = dotPackage.packaged_file || `${cloudResourceDir ? `${cloudResourceDir}/` : ""}.package/${bag.Name}_lambda_package.zip`;
+    const packageLocation = dotPackage.packaged_file || `.package/${bag.Name}_lambda_package.zip`;
     const dotEnvironment = compileBlockParam(block, "environment");
     const dotProvisionedConc = compileBlockParam(block, "provisioned_concurrency");
     let databags = [

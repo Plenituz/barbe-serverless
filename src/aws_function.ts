@@ -1,6 +1,6 @@
 import { AWS_FUNCTION } from "./barbe-sls-lib/consts";
 import { applyDefaults, compileBlockParam, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from "./barbe-sls-lib/lib";
-import { asStr, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, mergeTokens, asSyntax, asTraversal, appendToTemplate, asFuncCall, asBlock, asVal, asTemplate, asValArrayConst, SyntaxToken, appendToTraversal, onlyRunForLifecycleSteps } from './barbe-std/utils';
+import { asStr, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, asTraversal, appendToTemplate, asFuncCall, asBlock, asVal, asTemplate, asValArrayConst, appendToTraversal, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
@@ -17,7 +17,7 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const traversalTransform = preConfTraversalTransform(bag)
 
     const dotPackage = compileBlockParam(block, 'package')
-    const packageLocation = dotPackage.packaged_file || `${cloudResourceDir ? `${cloudResourceDir}/` : ''}.package/${bag.Name}_lambda_package.zip`
+    const packageLocation = dotPackage.packaged_file || `.package/${bag.Name}_lambda_package.zip`
     const dotEnvironment = compileBlockParam(block, 'environment')
     const dotProvisionedConc = compileBlockParam(block, 'provisioned_concurrency')
 

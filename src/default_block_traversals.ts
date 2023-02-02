@@ -1,4 +1,4 @@
-import { onlyRunForLifecycleSteps, readDatabagContainer, iterateAllBlocks, accumulateTokens, asStr, uniq, SyntaxToken, asVal, Traverse, lookupTraversal, exportDatabags } from './barbe-std/utils';
+import { onlyRunForLifecycleSteps, readDatabagContainer, iterateAllBlocks, accumulateTokens, asStr, uniq, SyntaxToken, Traverse, lookupTraversal, exportDatabags } from './barbe-std/utils';
 
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])

@@ -1,6 +1,6 @@
 import { STATE_STORE } from "./barbe-sls-lib/consts"
-import { applyDefaults, compileBlockParam, getAwsCreds, getGcpToken, isSimpleTemplate, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
-import { readDatabagContainer, exportDatabags, iterateBlocks, applyTransformers, Databag, SugarCoatedDatabag, asStr, appendToTemplate, asBlock, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
+import { applyDefaults, compileBlockParam, getAwsCreds, getGcpToken, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
+import { readDatabagContainer, exportDatabags, iterateBlocks, applyTransformers, Databag, SugarCoatedDatabag, asStr, appendToTemplate, asBlock, asSyntax, onlyRunForLifecycleSteps, isSimpleTemplate } from './barbe-std/utils';
 
 
 const container = readDatabagContainer()

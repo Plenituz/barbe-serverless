@@ -93,6 +93,21 @@
         };
     }
   }
+  function isSimpleTemplate(token) {
+    if (!token) {
+      return false;
+    }
+    if (typeof token === "string" || token.Type === "literal_value") {
+      return true;
+    }
+    if (token.Type !== "template") {
+      return false;
+    }
+    if (!token.Parts) {
+      return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -111,9 +126,6 @@
       default:
         throw new Error(`cannot turn token type '${token.Type}' into a value`);
     }
-  }
-  function asValArrayConst(token) {
-    return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
@@ -175,11 +187,9 @@
     };
   }
   function concatStrArr(token) {
-    const arr = asValArrayConst(token);
-    const parts = arr.map((item) => asTemplateStr(item).Parts || []).flat();
     return {
       Type: "template",
-      Parts: parts
+      Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
     };
   }
   function appendToTemplate(source, toAdd) {
@@ -380,21 +390,6 @@
         ...bagPreconf
       });
     };
-  }
-  function isSimpleTemplate(token) {
-    if (!token) {
-      return false;
-    }
-    if (typeof token === "string" || token.Type === "literal_value") {
-      return true;
-    }
-    if (token.Type !== "template") {
-      return false;
-    }
-    if (!token.Parts) {
-      return true;
-    }
-    return token.Parts.every(isSimpleTemplate);
   }
   var __gcpTokenCached = "";
   function getGcpToken() {
