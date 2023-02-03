@@ -226,7 +226,7 @@
     }]);
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value;
     if (!token) {
-      throw new Error("gcp_token not found");
+      return void 0;
     }
     __gcpTokenCached = asStr(asVal(token).access_token);
     return __gcpTokenCached;
@@ -243,7 +243,7 @@
     }]);
     const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value;
     if (!creds) {
-      throw new Error("aws_credentials not found");
+      return void 0;
     }
     const credsObj = asVal(creds);
     __awsCredsCached = {
@@ -304,9 +304,9 @@
 
                 ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
 
-                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_ACCESS_KEY_ID="${awsCreds?.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds?.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds?.session_token}"
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
 
                 RUN terraform init -input=false
@@ -314,9 +314,10 @@
                 RUN terraform output -json > terraform_output.json
                 RUN cat terraform_output.json | jq 'to_entries | map({ "key": .key, "value": .value.value }) | { "terraform_execute_output": { "${bag.Name}": . } }' > terraform_output_${bag.Name}.json
 
-                # if a tf backend is defined, this file wont be created,
-                # but buildkit will still try to export it, so we create it here
-                ${mode === "destroy" ? "RUN touch tmp" : "RUN touch terraform.tfstate"}`,
+                RUN touch tmp
+                RUN touch terraform.tfstate
+                RUN touch .terraform.lock.hcl
+                RUN touch .terraform`,
         read_back: readBack,
         exported_files: mode === "destroy" ? "tmp" : {
           "terraform.tfstate": removeBarbeOutputPrefix(`${dir}/terraform.tfstate`),
@@ -364,9 +365,9 @@
 
                 ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
 
-                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_ACCESS_KEY_ID="${awsCreds?.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds?.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds?.session_token}"
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
 
                 COPY --from=src template.tf.json template.tf.json
@@ -411,9 +412,9 @@
 
                 ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
 
-                ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                ENV AWS_ACCESS_KEY_ID="${awsCreds?.access_key_id}"
+                ENV AWS_SECRET_ACCESS_KEY="${awsCreds?.secret_access_key}"
+                ENV AWS_SESSION_TOKEN="${awsCreds?.session_token}"
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
 
                 RUN terraform init -input=false

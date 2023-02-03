@@ -403,7 +403,7 @@
     }]);
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value;
     if (!token) {
-      throw new Error("gcp_token not found");
+      return void 0;
     }
     __gcpTokenCached = asStr(asVal(token).access_token);
     return __gcpTokenCached;
@@ -420,7 +420,7 @@
     }]);
     const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value;
     if (!creds) {
-      throw new Error("aws_credentials not found");
+      return void 0;
     }
     const credsObj = asVal(creds);
     __awsCredsCached = {
@@ -476,6 +476,9 @@
         }
       ];
       if (!dotS3.existing_bucket) {
+        if (!awsCreds) {
+          throw new Error("couldn't find AWS credentials");
+        }
         applyTransformers([{
           Type: "buildkit_run_in_container",
           Name: `s3_bucket_creator_${bucketName}`,
@@ -545,7 +548,8 @@
 
                         ENV CLOUDSDK_AUTH_ACCESS_TOKEN="${gcpToken}"
                         ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
-
+                        
+                        RUN echo "hey" > /tmp/hey.txt
                         RUN gcloud storage buckets create gs://${bucketName} --project ${asStr(gcpProject)} --quiet || true
                     `
           }

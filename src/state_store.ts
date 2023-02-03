@@ -53,6 +53,9 @@ function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }
         ]
         if(!dotS3.existing_bucket) {
+            if(!awsCreds) {
+                throw new Error('couldn\'t find AWS credentials')
+            }
             applyTransformers([{
                 Type: 'buildkit_run_in_container',
                 Name: `s3_bucket_creator_${bucketName}`,

@@ -597,7 +597,7 @@
     }]);
     const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value;
     if (!creds) {
-      throw new Error("aws_credentials not found");
+      return void 0;
     }
     const credsObj = asVal(creds);
     __awsCredsCached = {
@@ -649,6 +649,9 @@ fs.writeFileSync('sls_framework.json', JSON.stringify(formattedOutput))`;
     quit();
   }
   var awsCreds = getAwsCreds();
+  if (!awsCreds) {
+    quit();
+  }
   var allSlsDirectories = allSlsRefs.map((token) => {
     if (isSlsTraversal(token)) {
       return ".";

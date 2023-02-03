@@ -105,7 +105,7 @@ export function preConfTraversalTransform(blockVal: Databag) {
 //TODO we should group the requests for gcs token and aws creds together
 //to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
 let __gcpTokenCached = '';
-export function getGcpToken(): string {
+export function getGcpToken(): string | undefined {
     if(__gcpTokenCached) {
         return __gcpTokenCached;
     }
@@ -116,7 +116,7 @@ export function getGcpToken(): string {
     }])
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value
     if(!token) {
-        throw new Error('gcp_token not found')
+        return undefined
     }
     __gcpTokenCached = asStr(asVal(token).access_token);
     return __gcpTokenCached;
@@ -128,7 +128,7 @@ export type AwsCreds = {
     session_token: string
 }
 let __awsCredsCached: AwsCreds | undefined = undefined;
-export function getAwsCreds(): AwsCreds {
+export function getAwsCreds(): AwsCreds | undefined {
     if(__awsCredsCached) {
         return __awsCredsCached;
     }
@@ -139,7 +139,7 @@ export function getAwsCreds(): AwsCreds {
     }])
     const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value
     if(!creds) {
-        throw new Error('aws_credentials not found')
+        return undefined
     }
     const credsObj = asVal(creds)
     __awsCredsCached = {

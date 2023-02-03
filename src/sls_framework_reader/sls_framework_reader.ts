@@ -41,6 +41,9 @@ if(allSlsRefs.length === 0) {
 }
 
 const awsCreds = getAwsCreds()
+if(!awsCreds) {
+    quit()
+}
 
 const allSlsDirectories = allSlsRefs.map((token) => {
     if(isSlsTraversal(token)) {

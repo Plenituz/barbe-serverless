@@ -303,7 +303,7 @@
     }]);
     const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value;
     if (!creds) {
-      throw new Error("aws_credentials not found");
+      return void 0;
     }
     const credsObj = asVal(creds);
     __awsCredsCached = {
@@ -363,6 +363,9 @@
     quit();
   }
   var awsCreds = getAwsCreds();
+  if (!awsCreds) {
+    quit();
+  }
   var toExecute = [
     ...allCfOutputStackNames.map((stackName) => ({
       Type: "buildkit_run_in_container",

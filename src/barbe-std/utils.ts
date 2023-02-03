@@ -687,6 +687,24 @@ export function iterateBlocks<T>(container: DatabagContainer, ofType: string, fu
     return output;
 }
 
+//this stops at the first non-falsy returned value
+export function findInBlocks<T>(container: DatabagContainer, func: (bag: Databag) => T): T | null {
+    const types = Object.keys(container);
+    for (const type of types) {
+        const blockNames = Object.keys(container[type]);
+        for (const blockName of blockNames) {
+            for (const block of container[type][blockName]) {
+                const r = func(block)
+                if(r) {
+                    return r
+                }
+            }
+        }
+    }
+    return null
+}
+
+
 export function cloudResourceRaw(params: CloudResourceBuilder): Databag {
     let typeStr = "cr_";
     if (params.kind) {

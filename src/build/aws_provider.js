@@ -201,6 +201,21 @@
     }
     return output;
   }
+  function findInBlocks(container2, func) {
+    const types = Object.keys(container2);
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          const r = func(block);
+          if (r) {
+            return r;
+          }
+        }
+      }
+    }
+    return null;
+  }
   function cloudResourceRaw(params) {
     let typeStr = "cr_";
     if (params.kind) {
@@ -301,12 +316,10 @@
     return [];
   }).flat());
   var newProviders = allRegions.filter((region) => !alreadyDeclaredProviders.has(region));
+  function isAwsBlock(bag) {
+    return bag.Type.includes("aws");
+  }
   var databags = [
-    cloudResourceRaw({
-      name: "aws",
-      kind: "provider",
-      id: "default"
-    }),
     ...newProviders.map((region) => cloudResourceRaw({
       name: "aws",
       kind: "provider",
@@ -317,5 +330,12 @@
       }
     }))
   ];
+  if (findInBlocks(container, isAwsBlock)) {
+    databags.push(cloudResourceRaw({
+      name: "aws",
+      kind: "provider",
+      id: "default"
+    }));
+  }
   exportDatabags(databags);
 })();

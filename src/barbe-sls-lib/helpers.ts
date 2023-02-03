@@ -1,6 +1,6 @@
 // this is for functions that are pretty specific to components but could be shared between components
 
-import { accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken } from "../barbe-std/utils";
+import {accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken, visitTokens, findInBlocks} from "../barbe-std/utils";
 
 //collect all the regions referenced as `aws.<region>`
 export function listReferencedAWSRegions(container: DatabagContainer): string[] {
@@ -25,4 +25,22 @@ export function listReferencedAWSRegions(container: DatabagContainer): string[] 
         return Array.from(new Set(regionNamesInThisBlock));
     }).flat()
     return Array.from(new Set(regionNames));
+}
+
+export function hasToken(container: DatabagContainer, tokenFunc: (token: SyntaxToken) => boolean): boolean {
+    return findInBlocks(container, (bag) => {
+        if(!bag.Value) {
+            return false;
+        }
+        let found = false
+        visitTokens(bag.Value, token => {
+            if(tokenFunc(token)) {
+                found = true
+                //non-null return stops the iteration
+                return token
+            }
+            return null
+        })
+        return found;
+    })
 }

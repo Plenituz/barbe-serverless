@@ -55,6 +55,9 @@ if(allCfOutputStackNames.length === 0 && allCfTemplateStackNames.length === 0) {
 }
 
 const awsCreds = getAwsCreds()
+if(!awsCreds) {
+    quit()
+}
 
 const toExecute: SugarCoatedDatabag[] = [
     ...allCfOutputStackNames.map(stackName => ({

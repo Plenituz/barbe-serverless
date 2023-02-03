@@ -84,6 +84,109 @@
         ].flat();
     }
   }
+  function visitTokens(root, visitor) {
+    const result = visitor(root);
+    if (result) {
+      return result;
+    }
+    switch (root.Type) {
+      default:
+        return root;
+      case "anon":
+      case "literal_value":
+      case "scope_traversal":
+        return root;
+      case "relative_traversal":
+        return {
+          Type: "relative_traversal",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor),
+          Traversal: root.Traversal
+        };
+      case "splat":
+        return {
+          Type: "splat",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor),
+          SplatEach: visitTokens(root.SplatEach, visitor)
+        };
+      case "object_const":
+        return {
+          Type: "object_const",
+          Meta: root.Meta || void 0,
+          ObjectConst: root.ObjectConst?.map((item) => ({
+            Key: item.Key,
+            Value: visitTokens(item.Value, visitor)
+          }))
+        };
+      case "array_const":
+        return {
+          Type: "array_const",
+          Meta: root.Meta || void 0,
+          ArrayConst: root.ArrayConst?.map((item) => visitTokens(item, visitor))
+        };
+      case "template":
+        return {
+          Type: "template",
+          Meta: root.Meta || void 0,
+          Parts: root.Parts?.map((item) => visitTokens(item, visitor))
+        };
+      case "function_call":
+        return {
+          Type: "function_call",
+          Meta: root.Meta || void 0,
+          FunctionName: root.FunctionName,
+          FunctionArgs: root.FunctionArgs?.map((item) => visitTokens(item, visitor))
+        };
+      case "index_access":
+        return {
+          Type: "index_access",
+          Meta: root.Meta || void 0,
+          IndexCollection: visitTokens(root.IndexCollection, visitor),
+          IndexKey: visitTokens(root.IndexKey, visitor)
+        };
+      case "conditional":
+        return {
+          Type: "conditional",
+          Meta: root.Meta || void 0,
+          Condition: visitTokens(root.Condition, visitor),
+          TrueResult: visitTokens(root.TrueResult, visitor),
+          FalseResult: visitTokens(root.FalseResult, visitor)
+        };
+      case "parens":
+        return {
+          Type: "parens",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor)
+        };
+      case "binary_op":
+        return {
+          Type: "binary_op",
+          Meta: root.Meta || void 0,
+          Operator: root.Operator,
+          RightHandSide: visitTokens(root.RightHandSide, visitor),
+          LeftHandSide: visitTokens(root.LeftHandSide, visitor)
+        };
+      case "unary_op":
+        return {
+          Type: "unary_op",
+          Meta: root.Meta || void 0,
+          Operator: root.Operator,
+          RightHandSide: visitTokens(root.RightHandSide, visitor)
+        };
+      case "for":
+        return {
+          Type: "for",
+          Meta: root.Meta || void 0,
+          ForKeyVar: root.ForKeyVar,
+          ForValVar: root.ForValVar,
+          ForCollExpr: visitTokens(root.ForCollExpr, visitor),
+          ForKeyExpr: root.ForKeyExpr ? visitTokens(root.ForKeyExpr, visitor) : void 0,
+          ForValExpr: visitTokens(root.ForValExpr, visitor),
+          ForCondExpr: root.ForCondExpr ? visitTokens(root.ForCondExpr, visitor) : void 0
+        };
+    }
+  }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
@@ -132,6 +235,21 @@
       }
     }
     return output;
+  }
+  function findInBlocks(container2, func) {
+    const types = Object.keys(container2);
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          const r = func(block);
+          if (r) {
+            return r;
+          }
+        }
+      }
+    }
+    return null;
   }
   function cloudResourceRaw(params) {
     let typeStr = "cr_";
@@ -215,6 +333,22 @@
     }).flat();
     return Array.from(new Set(regionNames));
   }
+  function hasToken(container2, tokenFunc) {
+    return findInBlocks(container2, (bag) => {
+      if (!bag.Value) {
+        return false;
+      }
+      let found = false;
+      visitTokens(bag.Value, (token) => {
+        if (tokenFunc(token)) {
+          found = true;
+          return token;
+        }
+        return null;
+      });
+      return found;
+    });
+  }
 
   // aws_base.ts
   var container = readDatabagContainer();
@@ -224,23 +358,19 @@
     ...params
   });
   var allRegions = listReferencedAWSRegions(container);
+  function isAwsPartition(token) {
+    return token.Type === "scope_traversal" && (token.Traversal || []).length > 2 && token.Traversal[0].Name === "data" && token.Traversal[1].Name === "aws_partition" && token.Traversal[2].Name === "current";
+  }
+  function isAwsRegion(token) {
+    return token.Type === "scope_traversal" && (token.Traversal || []).length > 2 && token.Traversal[0].Name === "data" && token.Traversal[1].Name === "aws_region" && token.Traversal[2].Name === "current";
+  }
+  function isAwsCallerIdentity(token) {
+    return token.Type === "scope_traversal" && (token.Traversal || []).length > 2 && token.Traversal[0].Name === "data" && token.Traversal[1].Name === "aws_caller_identity" && token.Traversal[2].Name === "current";
+  }
+  function isAwsAvailabilityZones(token) {
+    return token.Type === "scope_traversal" && (token.Traversal || []).length > 2 && token.Traversal[0].Name === "data" && token.Traversal[1].Name === "aws_availability_zones" && token.Traversal[2].Name === "current";
+  }
   var databags = [
-    dataResource({
-      name: "current",
-      type: "aws_partition"
-    }),
-    dataResource({
-      name: "current",
-      type: "aws_region"
-    }),
-    dataResource({
-      name: "current",
-      type: "aws_caller_identity"
-    }),
-    dataResource({
-      name: "current",
-      type: "aws_availability_zones"
-    }),
     ...allRegions.map((region) => dataResource({
       name: region,
       type: "aws_region",
@@ -256,5 +386,29 @@
       }
     }))
   ];
+  if (hasToken(container, isAwsPartition)) {
+    databags.push(dataResource({
+      name: "current",
+      type: "aws_partition"
+    }));
+  }
+  if (hasToken(container, isAwsRegion)) {
+    databags.push(dataResource({
+      name: "current",
+      type: "aws_region"
+    }));
+  }
+  if (hasToken(container, isAwsCallerIdentity)) {
+    databags.push(dataResource({
+      name: "current",
+      type: "aws_caller_identity"
+    }));
+  }
+  if (hasToken(container, isAwsAvailabilityZones)) {
+    databags.push(dataResource({
+      name: "current",
+      type: "aws_availability_zones"
+    }));
+  }
   exportDatabags(databags);
 })();
