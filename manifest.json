@@ -6,7 +6,7 @@
         "https://hub.barbe.app/barbe-serverless/aws_http_api/v0.1.1/.jsonnet",
         "https://hub.barbe.app/barbe-serverless/aws_iam/v0.1.1/.js",
         "https://hub.barbe.app/barbe-serverless/aws_kinesis/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_lambda/v0.1.1/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_function/v0.1.1/.js",
         "https://hub.barbe.app/barbe-serverless/aws_provider/v0.1.1/.js",
         "https://hub.barbe.app/barbe-serverless/aws_s3/v0.1.1/.js",
         "https://hub.barbe.app/barbe-serverless/cloudformation_reader/v0.1.1/.js",
