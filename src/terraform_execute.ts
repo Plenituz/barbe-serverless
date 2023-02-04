@@ -46,6 +46,10 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
             display_name: block.display_name || null,
             message: block.message || null,
             no_cache: true,
+            excludes: [
+                '.terraform',
+                '.terraform.lock.hcl'
+            ],
             dockerfile: `
                 FROM hashicorp/terraform:latest
                 RUN apk add jq
@@ -72,8 +76,6 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
             read_back: readBack,
             exported_files: mode === 'destroy' ? 'tmp' : {
                 'terraform.tfstate': removeBarbeOutputPrefix(`${dir}/terraform.tfstate`),
-                '.terraform.lock.hcl': removeBarbeOutputPrefix(`${dir}/.terraform.lock.hcl`),
-                '.terraform': removeBarbeOutputPrefix(`${dir}/.terraform`),
                 [`terraform_output_${bag.Name}.json`]: removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
             }
         }

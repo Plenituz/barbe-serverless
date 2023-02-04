@@ -548,8 +548,7 @@
 
                         ENV CLOUDSDK_AUTH_ACCESS_TOKEN="${gcpToken}"
                         ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
-                        
-                        RUN echo "hey" > /tmp/hey.txt
+
                         RUN gcloud storage buckets create gs://${bucketName} --project ${asStr(gcpProject)} --quiet || true
                     `
           }
