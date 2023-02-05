@@ -73,7 +73,7 @@
   }
 
   // barbe-sls-lib/consts.ts
-  var BARBE_SLS_VERSION = "v0.1.1";
+  var BARBE_SLS_VERSION = "v0.2.0";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // default_terraform.ts

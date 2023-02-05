@@ -3,7 +3,7 @@
   var AWS_S3 = "aws_s3";
   var AWS_FUNCTION = "aws_function";
   var EVENT_S3 = "event_s3";
-  var BARBE_SLS_VERSION = "v0.1.1";
+  var BARBE_SLS_VERSION = "v0.2.0";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts

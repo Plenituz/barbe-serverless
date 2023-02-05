@@ -1,7 +1,7 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var AWS_FUNCTION = "aws_function";
-  var BARBE_SLS_VERSION = "v0.1.1";
+  var BARBE_SLS_VERSION = "v0.2.0";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
