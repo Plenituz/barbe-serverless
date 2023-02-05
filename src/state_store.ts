@@ -88,7 +88,6 @@ function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         if(!isSimpleTemplate(gcpProject)) {
             return []
         }
-        const gcpToken = getGcpToken()
         let localDatabags: SugarCoatedDatabag[] = [
             cloudTerraform('', '', {
                 backend: asBlock([() => ({
@@ -116,6 +115,7 @@ function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         ]
 
         if(!dotGCS.existing_bucket) {
+            const gcpToken = getGcpToken(false)
             applyTransformers([{
                 Type: 'buildkit_run_in_container',
                 Name: `gcs_bucket_creator_${bucketName}`,

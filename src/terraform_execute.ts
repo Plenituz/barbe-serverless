@@ -27,7 +27,7 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
     }
 
     const awsCreds = getAwsCreds()
-    const gcpToken = getGcpToken()
+    const gcpToken = getGcpToken(true)
     const dir = asStr(block.dir)
     let readBack: string | null = null
     if(mode === 'apply') {
@@ -94,7 +94,7 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
     }
 
     const awsCreds = getAwsCreds()
-    const gcpToken = getGcpToken()
+    const gcpToken = getGcpToken(true)
     const dir = asStr(block.dir)
     let vars = ''
     if(block.variable_values) {
@@ -149,7 +149,7 @@ function terraformExecuteGetOutputIterator(bag: Databag): (Databag | SugarCoated
     const block = asVal(bag.Value)
 
     const awsCreds = getAwsCreds()
-    const gcpToken = getGcpToken()
+    const gcpToken = getGcpToken(true)
     const dir = asStr(block.dir)
     let vars = ''
     if(block.variable_values) {

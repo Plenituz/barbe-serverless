@@ -215,14 +215,14 @@
 
   // barbe-sls-lib/lib.ts
   var __gcpTokenCached = "";
-  function getGcpToken() {
+  function getGcpToken(optional) {
     if (__gcpTokenCached) {
       return __gcpTokenCached;
     }
     const transformed = applyTransformers([{
       Name: "state_store_credentials",
       Type: "gcp_token_request",
-      Value: {}
+      Value: { optional }
     }]);
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value;
     if (!token) {
@@ -277,7 +277,7 @@
       throw new Error(`Invalid mode '${mode}' for terraform_execute block. Valid values are 'apply' and 'destroy'`);
     }
     const awsCreds = getAwsCreds();
-    const gcpToken = getGcpToken();
+    const gcpToken = getGcpToken(true);
     const dir = asStr(block.dir);
     let readBack = null;
     if (mode === "apply") {
@@ -340,7 +340,7 @@
       throw new Error(`Invalid mode '${mode}' for terraform_execute block. Valid values are 'apply' and 'destroy'`);
     }
     const awsCreds = getAwsCreds();
-    const gcpToken = getGcpToken();
+    const gcpToken = getGcpToken(true);
     const dir = asStr(block.dir);
     let vars = "";
     if (block.variable_values) {
@@ -392,7 +392,7 @@
     }
     const block = asVal(bag.Value);
     const awsCreds = getAwsCreds();
-    const gcpToken = getGcpToken();
+    const gcpToken = getGcpToken(true);
     const dir = asStr(block.dir);
     let vars = "";
     if (block.variable_values) {

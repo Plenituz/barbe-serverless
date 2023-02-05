@@ -105,14 +105,14 @@ export function preConfTraversalTransform(blockVal: Databag) {
 //TODO we should group the requests for gcs token and aws creds together
 //to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
 let __gcpTokenCached = '';
-export function getGcpToken(): string | undefined {
+export function getGcpToken(optional: boolean): string | undefined {
     if(__gcpTokenCached) {
         return __gcpTokenCached;
     }
     const transformed = applyTransformers([{
         Name: "state_store_credentials",
         Type: "gcp_token_request",
-        Value: {}
+        Value: { optional }
     }])
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value
     if(!token) {

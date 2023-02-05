@@ -392,14 +392,14 @@
     };
   }
   var __gcpTokenCached = "";
-  function getGcpToken() {
+  function getGcpToken(optional) {
     if (__gcpTokenCached) {
       return __gcpTokenCached;
     }
     const transformed = applyTransformers([{
       Name: "state_store_credentials",
       Type: "gcp_token_request",
-      Value: {}
+      Value: { optional }
     }]);
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value;
     if (!token) {
@@ -510,7 +510,6 @@
       if (!isSimpleTemplate(gcpProject)) {
         return [];
       }
-      const gcpToken = getGcpToken();
       let localDatabags = [
         cloudTerraform("", "", {
           backend: asBlock([() => ({
@@ -537,6 +536,7 @@
         }
       ];
       if (!dotGCS.existing_bucket) {
+        const gcpToken = getGcpToken(false);
         applyTransformers([{
           Type: "buildkit_run_in_container",
           Name: `gcs_bucket_creator_${bucketName}`,
