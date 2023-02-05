@@ -1,21 +1,21 @@
 {
     "components": [
-        "https://hub.barbe.app/barbe-serverless/aws_base/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_dynamodb/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_fargate_task/v0.1.1/.jsonnet",
-        "https://hub.barbe.app/barbe-serverless/aws_http_api/v0.1.1/.jsonnet",
-        "https://hub.barbe.app/barbe-serverless/aws_iam/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_kinesis/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_function/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_provider/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/aws_s3/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/cloudformation_reader/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/default_block_traversals/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/env_vars/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/for_each/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/sls_framework_reader/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/state_store/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/terraform_passthrough/v0.1.1/.js",
-        "https://hub.barbe.app/barbe-serverless/default_terraform/v0.1.1/.js"
+        "https://hub.barbe.app/barbe-serverless/aws_base/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_dynamodb/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_fargate_task/v0.2.0/.jsonnet",
+        "https://hub.barbe.app/barbe-serverless/aws_http_api/v0.2.0/.jsonnet",
+        "https://hub.barbe.app/barbe-serverless/aws_iam/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_kinesis/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_function/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_provider/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/aws_s3/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/cloudformation_reader/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/default_block_traversals/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/env_vars/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/for_each/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/sls_framework_reader/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/state_store/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/terraform_passthrough/v0.2.0/.js",
+        "https://hub.barbe.app/barbe-serverless/default_terraform/v0.2.0/.js"
     ]
 }
