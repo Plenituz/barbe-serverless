@@ -1,7 +1,7 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var FOR_EACH = "for_each";
-  var BARBE_SLS_VERSION = "v0.2.0";
+  var BARBE_SLS_VERSION = "v0.2.1";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
 
   // barbe-std/rpc.ts
