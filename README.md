@@ -89,6 +89,8 @@ aws_function "my-func" {
 }
 ```
 
+Interested? Need some help? Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
+
 Quick links:
 - [Getting started in 5 minutes](./docs/getting-started.md)
 - [Example projects](./examples)
@@ -101,7 +103,7 @@ Quick links:
 Barbe-serverless sits on the shoulder of giants, inheriting all the superpowers they come with, including:
 - Fast, flexible, multi-cloud deployment from [Terraform](https://github.com/hashicorp/terraform) (frankly, I'm just tired of dealing with my grumpy ex-wife Cloudformation)
 - Easy config management, extensibility, and integration with existing tools/frameworks with [Barbe](https://github.com/Plenituz/barbe)
-- Run your deployment on any machine with a single command thanks to [builkit](https://github.com/moby/buildkit)
+- Run your deployment on any machine with a single command thanks to [buildkit](https://github.com/moby/buildkit)
 
 > Barbe-serverless is in pretty early stage, be on the lookout for breaking changes and new exciting features, come have fun with it!
 
@@ -127,3 +129,5 @@ Otherwise, get started with the [installation](./docs/installation.md) and [guid
 ## Ideas? Essential feature missing? Just a question or some feedback?
 
 Feel free to open an issue for **any** reason, would love to hear from you!
+
+Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
