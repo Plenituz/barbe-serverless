@@ -6,7 +6,7 @@
   var AWS_KINESIS_STREAM = "aws_kinesis_stream";
   var AWS_IAM_LAMBDA_ROLE = "aws_iam_lambda_role";
   var AWS_FARGATE_TASK = "aws_fargate_task";
-  var BARBE_SLS_VERSION = "v0.2.1";
+  var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts

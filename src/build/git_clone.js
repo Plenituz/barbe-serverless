@@ -1,7 +1,7 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var GIT_CLONE = "git_clone";
-  var BARBE_SLS_VERSION = "v0.2.1";
+  var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts

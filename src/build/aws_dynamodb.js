@@ -286,7 +286,7 @@
   var AWS_FUNCTION = "aws_function";
   var EVENT_DYNAMODB_STREAM = "event_dynamodb_stream";
   var AWS_DYNAMODB = "aws_dynamodb";
-  var BARBE_SLS_VERSION = "v0.2.1";
+  var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts
