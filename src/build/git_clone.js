@@ -1,8 +1,6 @@
 (() => {
   // barbe-sls-lib/consts.ts
-  var AWS_S3 = "aws_s3";
-  var AWS_FUNCTION = "aws_function";
-  var EVENT_S3 = "event_s3";
+  var GIT_CLONE = "git_clone";
   var BARBE_SLS_VERSION = "v0.2.1";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
@@ -95,6 +93,21 @@
         };
     }
   }
+  function isSimpleTemplate(token) {
+    if (!token) {
+      return false;
+    }
+    if (typeof token === "string" || token.Type === "literal_value") {
+      return true;
+    }
+    if (token.Type !== "template") {
+      return false;
+    }
+    if (!token.Parts) {
+      return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -113,9 +126,6 @@
       default:
         throw new Error(`cannot turn token type '${token.Type}' into a value`);
     }
-  }
-  function asValArrayConst(token) {
-    return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
@@ -141,62 +151,6 @@
     } else {
       return token;
     }
-  }
-  function asTraversal(str) {
-    return {
-      Type: "scope_traversal",
-      // TODO will output correct string for indexing ("abc[0]") but
-      // is using the wrong syntax token (Type: "attr" instead of Type: "index")
-      Traversal: str.split(".").map((part) => ({
-        Type: "attr",
-        Name: part
-      }))
-    };
-  }
-  function appendToTemplate(source, toAdd) {
-    let parts = [];
-    if (source.Type === "template") {
-      parts = source.Parts?.slice() || [];
-    } else if (source.Type === "literal_value") {
-      parts = [source];
-    } else {
-      parts = [source];
-    }
-    parts.push(...toAdd.map(asSyntax));
-    return {
-      Type: "template",
-      Parts: parts
-    };
-  }
-  function asBlock(arr) {
-    return {
-      Type: "array_const",
-      Meta: { IsBlock: true },
-      ArrayConst: arr.map((obj) => {
-        if (typeof obj === "function") {
-          const { block, labels } = obj();
-          return {
-            Type: "object_const",
-            Meta: {
-              IsBlock: true,
-              Labels: labels
-            },
-            ObjectConst: Object.keys(block).map((key) => ({
-              Key: key,
-              Value: asSyntax(block[key])
-            }))
-          };
-        }
-        return {
-          Type: "object_const",
-          Meta: { IsBlock: true },
-          ObjectConst: Object.keys(obj).map((key) => ({
-            Key: key,
-            Value: asSyntax(obj[key])
-          }))
-        };
-      })
-    };
   }
   function iterateAllBlocks(container2, func) {
     const types = Object.keys(container2);
@@ -224,37 +178,6 @@
     }
     return output;
   }
-  function cloudResourceRaw(params) {
-    let typeStr = "cr_";
-    if (params.kind) {
-      typeStr += "[" + params.kind;
-      if (params.id) {
-        typeStr += "(" + params.id + ")";
-      }
-      typeStr += "]";
-      if (params.type) {
-        typeStr += "_";
-      }
-    }
-    if (params.type) {
-      typeStr += params.type;
-    }
-    let value = params.value || {};
-    value = asSyntax(value);
-    if (params.dir) {
-      value = {
-        ...value,
-        Meta: {
-          sub_dir: params.dir
-        }
-      };
-    }
-    return {
-      Type: typeStr,
-      Name: params.name,
-      Value: value
-    };
-  }
   function exportDatabags(bags) {
     if (!Array.isArray(bags)) {
       bags = iterateAllBlocks(bags, (bag) => bag);
@@ -272,6 +195,18 @@
       throw new Error(resp.error);
     }
   }
+  function applyTransformers(input) {
+    const resp = barbeRpcCall({
+      method: "transformContainer",
+      params: [{
+        databags: input
+      }]
+    });
+    if (isFailure(resp)) {
+      throw new Error(resp.error);
+    }
+    return resp.result;
+  }
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
@@ -283,6 +218,9 @@
   }
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
+  function barbeOutputDir() {
+    return os.getenv("BARBE_OUTPUT_DIR");
   }
 
   // barbe-sls-lib/lib.ts
@@ -356,139 +294,50 @@
     }
     return output;
   }
-  function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
-    const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
-    const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
-    return (type, name, value) => {
-      value = {
-        provider: blockVal.region && type.includes("aws") ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
-        ...preconf,
-        ...value
-      };
-      return cloudResourceRaw({
-        kind,
-        dir: cloudResourceDir,
-        id: cloudResourceId,
-        type,
-        name,
-        value: Object.entries(value).filter(([_, v]) => v !== null && v !== void 0).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
-        ...bagPreconf
-      });
-    };
-  }
-  function preConfTraversalTransform(blockVal) {
-    return (name, transforms) => ({
-      Name: `${blockVal.Name}_${name}`,
-      Type: "traversal_transform",
-      Value: transforms
-    });
-  }
 
-  // aws_s3.ts
+  // git_clone.ts
   var container = readDatabagContainer();
+  var outputDir = barbeOutputDir();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function awsS3Iterator(bag) {
+  function gitCloneIterator(bag) {
     if (!bag.Value) {
       return [];
     }
-    const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResource = preConfCloudResourceFactory(block, "resource");
-    const traversalTransform = preConfTraversalTransform(bag);
-    const allEventS3 = iterateBlocks(container, AWS_FUNCTION, (awsFuncBag) => {
-      if (!awsFuncBag.Value) {
-        return [];
-      }
-      if (awsFuncBag.Value.Type !== "object_const" || !awsFuncBag.Value.ObjectConst) {
-        return [];
-      }
-      const eventS3Keys = awsFuncBag.Value.ObjectConst.map((pair) => {
-        if (pair.Key !== EVENT_S3 || !pair.Value || pair.Value.Type !== "array_const" || !pair.Value.ArrayConst) {
-          return [];
+    const [block, _] = applyDefaults(container, bag.Value);
+    if (!block.uri) {
+      throw new Error(`git_clone '${bag.Name}' block is missing the 'uri' parameter (ie: uri = "https://github.com/user/repo")`);
+    }
+    if (!isSimpleTemplate(block.uri)) {
+      return [];
+    }
+    const dirName = `git_clone_${bag.Name}`;
+    const uri = asStr(block.uri);
+    return [
+      {
+        Type: "traversal_map",
+        Name: "git_clone_traversal_map",
+        Value: {
+          [`git_clone.${bag.Name}.dir`]: `${outputDir}/${dirName}`
         }
-        const events = asValArrayConst(pair.Value);
-        const eventsToMyBucket = events.filter(
-          (event) => event.bucket && event.bucket.Type.includes("traversal") && event.bucket.Traversal[1] && event.bucket.Traversal[1].Name === bag.Name
-        );
-        return eventsToMyBucket.map((event) => ({
-          event,
-          bag: awsFuncBag
-        }));
-      }).flat();
-      return eventS3Keys;
-    }).flat();
-    let databags = [
-      traversalTransform("aws_s3_traversal_transform", {
-        [`aws_s3.${bag.Name}`]: `aws_s3_bucket.${bag.Name}_s3`
-      }),
-      cloudResource("aws_s3_bucket", `${bag.Name}_s3`, {
-        bucket: appendToTemplate(namePrefix, [bag.Name]),
-        force_destroy: block.force_destroy
-      })
+      },
+      {
+        Type: "buildkit_run_in_container",
+        Name: `git_clone_${bag.Name}`,
+        Value: {
+          display_name: `git clone - ${bag.Name}`,
+          no_cache: true,
+          // TODO request local git credentials
+          dockerfile: `
+                    FROM alpine/git:latest
+                    RUN git clone ${uri} output`,
+          exported_files: {
+            "output": dirName
+          }
+        }
+      }
     ];
-    if (block.object_lock_enabled) {
-      databags.push(
-        traversalTransform("aws_s3_object_lock_traversal_transform", {
-          [`aws_s3.${bag.Name}.object_lock`]: `aws_s3_bucket_object_lock_configuration.${bag.Name}_s3_object_lock`
-        }),
-        cloudResource("aws_s3_bucket_object_lock_configuration", `${bag.Name}_s3_object_lock`, {
-          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_s3.bucket`),
-          object_lock_enabled: block.object_lock_enabled
-        })
-      );
-    }
-    if (block.versioning_enabled && asVal(block.versioning_enabled) === true) {
-      databags.push(
-        traversalTransform("aws_s3_versioning_traversal_transform", {
-          [`aws_s3.${bag.Name}.versioning`]: `aws_s3_bucket_versioning.${bag.Name}_s3_versioning`
-        }),
-        cloudResource("aws_s3_bucket_versioning", `${bag.Name}_s3_versioning`, {
-          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_s3.bucket`),
-          versioning_configuration: asBlock([{
-            status: "Enabled"
-          }])
-        })
-      );
-    }
-    if (block.cors_rule) {
-      databags.push(
-        traversalTransform("aws_s3_cors_traversal_transform", {
-          [`aws_s3.${bag.Name}.cors`]: `aws_s3_bucket_cors_configuration.${bag.Name}_s3_cors`
-        }),
-        cloudResource("aws_s3_bucket_cors_configuration", `${bag.Name}_s3_cors`, {
-          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_s3.bucket`),
-          cors_rule: asBlock(asValArrayConst(block.cors_rule).map((rule) => ({
-            id: rule.id,
-            allowed_headers: rule.allowed_headers,
-            allowed_methods: rule.allowed_methods,
-            allowed_origins: rule.allowed_origins,
-            expose_headers: rule.expose_headers,
-            max_age_seconds: rule.max_age_seconds
-          })))
-        })
-      );
-    }
-    if (allEventS3.length !== 0) {
-      databags.push(
-        cloudResource("aws_s3_bucket_notification", `${bag.Name}_s3_notification`, {
-          //TODO this is needed to avoid having to deploy twice the first time the template gets deployed
-          // comment above: unsure if that's still true
-          //depends_on: [
-          //	for tuple in allEventS3 {
-          //		let functionLabel = (barbe.#AsValArrayConst & {#In: tuple[1].labels}).out[0]
-          //		barbe.#AsTraversal & {#In: "aws_lambda_permission.\(functionLabel)_\(labels[0])_s3_permission"}
-          //	}
-          //]
-          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_s3.bucket`),
-          lambda_function: asBlock(allEventS3.map((tuple) => ({
-            lambda_function_arn: asTraversal(`aws_lambda_function.${tuple.bag.Name}_lambda.arn`),
-            events: tuple.event.events || ["s3:*"],
-            filter_prefix: tuple.event.prefix,
-            filter_suffix: tuple.event.suffix
-          })))
-        })
-      );
-    }
-    return databags;
   }
-  exportDatabags(iterateBlocks(container, AWS_S3, awsS3Iterator).flat());
+  exportDatabags(applyTransformers([
+    ...iterateBlocks(container, GIT_CLONE, gitCloneIterator).flat()
+  ]));
 })();

@@ -1,4 +1,4 @@
-import { barbeRpcCall, isFailure } from "./rpc";
+import { barbeRpcCall, isFailure, RpcResponse } from './rpc';
 
 export type CloudResourceBuilder = {
     // directory where the cloud resource configuration will be put
@@ -771,7 +771,7 @@ export function applyTransformers(input: SugarCoatedDatabag[]): DatabagContainer
 
 export type ImportComponentInput = {
     url: string
-    name: string
+    name?: string
     copyFromContainer?: string[]
     input?: SugarCoatedDatabag[]
 }
@@ -810,7 +810,7 @@ export function importComponents(container: DatabagContainer, components: Import
             }
         }
         
-        const id = `${component.name}_${component.url}`
+        const id = `${component.name || ''}_${component.url}`
         barbeImportComponent.push({
             Type: "barbe_import_component",
             Name: id,
@@ -818,16 +818,33 @@ export function importComponents(container: DatabagContainer, components: Import
         })
     }
 
+    // console.log('barbeImportComponent', JSON.stringify(barbeImportComponent))
+    if(barbeImportComponent.length === 0) {
+        return {};
+    }
     const resp = barbeRpcCall<DatabagContainer>({
         method: "importComponents",
         params: [{
             databags: barbeImportComponent
         }]
     });
+    // console.log('barbeImportComponent resp', JSON.stringify(resp))
     if (isFailure(resp)) {
         throw new Error(resp.error)
     }
     return resp.result;
+}
+
+type FileStat = {
+    name: string
+    size: number
+    isDir: boolean
+}
+export function statFile(fileName: string): RpcResponse<FileStat> {
+    return barbeRpcCall<FileStat>({
+        method: "statFile",
+        params: [fileName]
+    });
 }
 
 export function readDatabagContainer() {

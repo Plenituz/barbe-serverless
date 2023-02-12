@@ -287,7 +287,7 @@
   var EVENT_DYNAMODB_STREAM = "event_dynamodb_stream";
   var AWS_DYNAMODB = "aws_dynamodb";
   var BARBE_SLS_VERSION = "v0.2.1";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -452,35 +452,6 @@
     return {
       Type: "template",
       Parts: arr.map(asSyntax)
-    };
-  }
-  function asTemplateStr(arr) {
-    if (!Array.isArray(arr)) {
-      arr = [arr];
-    }
-    return {
-      Type: "template",
-      Parts: arr.map((item) => {
-        if (typeof item === "string") {
-          return {
-            Type: "literal_value",
-            Value: item
-          };
-        }
-        if (item.Type === "scope_traversal" || item.Type === "relative_traversal" || item.Type === "literal_value" || item.Type === "template") {
-          return item;
-        }
-        return {
-          Type: "literal_value",
-          Value: asStr(item)
-        };
-      })
-    };
-  }
-  function concatStrArr(token) {
-    return {
-      Type: "template",
-      Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
     };
   }
   function appendToTemplate(source, toAdd) {
@@ -652,11 +623,50 @@
     const blockVal = asVal(mergeTokens([defaults, block]));
     return [
       blockVal,
-      compileNamePrefix(blockVal)
+      compileNamePrefix(container2, block)
     ];
   }
-  function compileNamePrefix(blockVal) {
-    return concatStrArr(blockVal.name_prefix || asSyntax([]));
+  function compileNamePrefix(container2, block) {
+    let namePrefixes = [];
+    if (container2.global_default) {
+      const globalDefaults = Object.values(container2.global_default).flatMap((group) => group.map((block2) => block2.Value)).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...globalDefaults);
+    }
+    let defaultName;
+    const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
+    if (copyFrom) {
+      defaultName = asStr(copyFrom.Value);
+    } else {
+      defaultName = "";
+    }
+    if (container2.default && container2.default[defaultName]) {
+      const defaults = container2.default[defaultName].map((bag) => bag.Value).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...defaults);
+    }
+    namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    let output = {
+      Type: "template",
+      Parts: []
+    };
+    const mergeIn = (namePrefixToken) => {
+      switch (namePrefixToken.Type) {
+        case "literal_value":
+          output.Parts.push(namePrefixToken);
+          break;
+        case "template":
+          output.Parts.push(...namePrefixToken.Parts || []);
+          break;
+        case "array_const":
+          namePrefixToken.ArrayConst?.forEach(mergeIn);
+          break;
+        default:
+          console.log("unknown name_prefix type '", namePrefixToken.Type, "'");
+      }
+    };
+    for (const namePrefixToken of namePrefixes) {
+      mergeIn(namePrefixToken);
+    }
+    return output;
   }
   function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;

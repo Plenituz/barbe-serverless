@@ -4,7 +4,7 @@
   var TERRAFORM_EXECUTE_GET_OUTPUT = "terraform_execute_get_output";
   var TERRAFORM_EMPTY_EXECUTE = "terraform_empty_execute";
   var BARBE_SLS_VERSION = "v0.2.1";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {

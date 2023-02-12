@@ -35,7 +35,7 @@ function forEachIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
     const [block, _] = applyDefaults(container, bag.Value);
     if(!block[bag.Name]) {
-        throw new Error(`for_each: cannot iterate over undefined property: '${bag.Name}'. You probably want to add it to the default block`)
+        throw new Error(`for_each: cannot iterate over undefined property: '${bag.Name}'. You probably want to add it to the 'default' block`)
     }
     const arrToIterate: SyntaxToken[] = asVal(block[bag.Name]!)
     if(!Array.isArray(arrToIterate)) {

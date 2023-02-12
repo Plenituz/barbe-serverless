@@ -1,6 +1,7 @@
 import { STATE_STORE } from "./barbe-sls-lib/consts"
 import { applyDefaults, compileBlockParam, getAwsCreds, getGcpToken, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
 import { readDatabagContainer, exportDatabags, iterateBlocks, applyTransformers, Databag, SugarCoatedDatabag, asStr, appendToTemplate, asBlock, asSyntax, onlyRunForLifecycleSteps, isSimpleTemplate } from './barbe-std/utils';
+import md5 from 'md5';
 
 
 const container = readDatabagContainer()
@@ -17,7 +18,12 @@ function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
 
     //if there is an env var or something in the name, this component might get called before the env var was baked in
     //TODO right now this will just fail silently if the user put a dynamic value in the bucket name
-    const bucketName = isSimpleTemplate(bucketNameTemplate) ? asStr(bucketNameTemplate) : undefined
+    let bucketName = isSimpleTemplate(bucketNameTemplate) ? asStr(bucketNameTemplate) : undefined
+    if(bucketName) {
+        //bucket names should be globally unique, adding a hash at the end makes it easier to have a unique name
+        bucketName += md5(bucketName).slice(0, 5)
+    }
+    
 
     const makeS3Store = (): (Databag | SugarCoatedDatabag)[] => {
         const dotS3 = compileBlockParam(block, 's3')
