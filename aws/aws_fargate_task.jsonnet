@@ -613,16 +613,16 @@ barbe.databags([
                                             std.manifestJsonMinified({
                                                 "rules": [
                                                     {
-                                                    "action": {
-                                                      "type": "expire"
-                                                    },
-                                                    "selection": {
-                                                      "countType": "imageCountMoreThan",
-                                                      "countNumber": barbe.asVal(ecrBlock.max_untagged_count),
-                                                      "tagStatus": "untagged"
-                                                    },
-                                                    "description": "Delete untagged",
-                                                    "rulePriority": 1
+                                                        "action": {
+                                                          "type": "expire"
+                                                        },
+                                                        "selection": {
+                                                          "countType": "imageCountMoreThan",
+                                                          "countNumber": barbe.asVal(ecrBlock.max_untagged_count),
+                                                          "tagStatus": "untagged"
+                                                        },
+                                                        "description": "Delete untagged",
+                                                        "rulePriority": 1
                                                     }
                                                 ]
                                             })
