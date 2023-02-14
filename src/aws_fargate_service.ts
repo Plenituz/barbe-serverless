@@ -43,23 +43,36 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false))
     const portMapping = asValArrayConst(block.port_mapping || asSyntax([]))
     const mappedPorts: SyntaxToken[] = asVal(block.mapped_ports || asSyntax([]))
+    const portsToOpen: { port: string, protocol: string }[] = uniq([
+        ...portMapping
+            .map((portMapping: DatabagObjVal) => ({
+                port: asStr(portMapping.host_port || portMapping.container_port!),
+                protocol: asStr(portMapping.protocol || 'tcp')
+            })),
+        ...mappedPorts.map(port => ({
+            port: asStr(port),
+            protocol: 'tcp'
+        }))
+    ], i => i.port + i.protocol)
     let executionRole: SyntaxToken
     let repositoryUrl: SyntaxToken
     let securityGroupId: SyntaxToken
     let vpcRef: SyntaxToken
     let subnetIds: SyntaxToken
+    let currentCidrOffset = 0
 
-    const makeSubnets = (dotSubnet: DatabagObjVal, nameSuffix: string, index: number, cidrOffset: number): SugarCoatedDatabag[] => {
+    const makeSubnets = (dotSubnet: DatabagObjVal, nameSuffix: string, index: number): SugarCoatedDatabag[] => {
         const makeNatGateway = asVal(dotSubnet.make_nat_gateway || asSyntax(false))
         const kind = asStr(dotSubnet.kind || 'public') as 'public' | 'private'
         let localDatabags: SugarCoatedDatabag[] = [
+            // TODO create 1 subnet per AZ
             cloudResource('aws_subnet', `aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}`, {
                 vpc_id: appendToTraversal(vpcRef, 'id'),
                 availability_zone: asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`),
                 cidr_block: dotSubnet.cidr_block || asFuncCall('cidrsubnet', [
                     appendToTraversal(vpcRef, 'cidr_block'),
                     4,
-                    index+cidrOffset+1,
+                    index+1+(currentCidrOffset++),
                 ])
             }),
             cloudResource('aws_route_table', `aws_fargate_task_${bag.Name}_subnet_${index}_route_table${nameSuffix}`, {
@@ -201,19 +214,6 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         securityGroupId = block.security_group_id
     } else {
         securityGroupId = asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`)
-        const portsToOpen: { port: string, protocol: string }[] = uniq([
-            ...portMapping
-                .map((portMapping: DatabagObjVal) => ({
-                    port: asStr(portMapping.host_port || portMapping.container_port!),
-                    protocol: asStr(portMapping.protocol || 'tcp')
-                })),
-            ...mappedPorts.map(port => ({
-                port: asStr(port),
-                protocol: 'tcp'
-            }))
-        ], i => i.port + i.protocol)
-        
-        
         databags.push(
             cloudResource('aws_security_group', `aws_fargate_task_${bag.Name}_secgr`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
@@ -253,7 +253,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     } else {
         subnetIds = asSyntax(dotSubnets.map((_, i) => asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${i}.id`)))
         databags.push(
-            ...dotSubnets.flatMap((dotSubnet, i) => makeSubnets(dotSubnet, '', i, 0))
+            ...dotSubnets.flatMap((dotSubnet, i) => makeSubnets(dotSubnet, '', i))
         )
     }
     if (block.auto_scaling) {
@@ -370,9 +370,60 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         //TODO add to ecsService
         //TODO subnets for lb
 
+        //access logs might be disabled with `access_logs { enabled = false }` but we still define the resources if access_logs is defined
+        //because if the access logs were previously enabled, we would delete the existing logs when the user might just want it temporarily disabled
+
+        const asSgProtocol = (protocol: string) => {
+            switch(protocol.toLowerCase()) {
+                case 'http':
+                case 'https':
+                    return 'tcp'
+                default:
+                    return protocol.toLowerCase()
+            }
+        }
+
+        const asLbProtocol = (protocol: string) => {
+            switch(protocol.toLowerCase()) {
+                case 'http':
+                case 'tcp':
+                    return 'HTTP'
+                case 'https':
+                    return 'HTTPS'
+                default:
+                    return protocol.toUpperCase()
+            }
+        }
+
+        const enableHttps = !!dotLoadBalancer.domain
+        const defineAccessLogsResources = asVal(dotLoadBalancer.enable_access_logs || asSyntax(false)) || !!dotAutoScaling.access_logs
+        const dotAccessLogs = compileBlockParam(dotLoadBalancer, 'access_logs')
+        const portMappingLoadBalancer: DatabagObjVal[] = asValArrayConst(dotLoadBalancer.port_mapping || asSyntax([]))
+        //TODO if there is only one open port on the container, and it's an application load balancer, route 80 and 443 to it
+        const portsToOpenLoadBalancer = uniq(portMappingLoadBalancer.map((portMapping, i) => {
+            //TODO if target port is not open on the container, throw error
+            if(!portMapping.target_port) {
+                throw new Error(`'target_port' is required for aws_fargate_service.${bag.Name}.load_balancer.port_mapping[${i}]`)
+            }
+            if(!portMapping.load_balancer_port) {
+                throw new Error(`'load_balancer_port' is required for aws_fargate_service.${bag.Name}.load_balancer.port_mapping[${i}]`)
+            }
+            const targetPort = asStr(portMapping.target_port)
+            if(!portsToOpen.find((m) => m.port === targetPort)) {
+                throw new Error(`'target_port' ${targetPort} is not open on the container but used in aws_fargate_service.${bag.Name}.load_balancer.port_mapping[${i}], add it to aws_fargate_service.${bag.Name}.mapped_ports or aws_fargate_service.${bag.Name}.port_mapping, or remove it from aws_fargate_service.${bag.Name}.load_balancer.port_mapping[${i}]`)
+            }
+            return {
+                target_port: targetPort,
+                load_balancer_port: asStr(portMapping.load_balancer_port),
+                protocol: asStr(portMapping.protocol || 'HTTP').toUpperCase(),
+            }
+        }), x => `${x.target_port}-${x.load_balancer_port}-${x.protocol}`)
+
         //https://github.com/strvcom/terraform-aws-fargate/blob/master/main.tf
         const loadBalancerType = asStr(dotLoadBalancer.type || 'application')
         const internal = asVal(dotLoadBalancer.internal || asSyntax(false))
+        const loadBalancerDotSubnets: DatabagObjVal[] = asValArrayConst(block.subnets || asSyntax([{/*this makes a default subnet if none defined*/}]))
+        databags.push(...loadBalancerDotSubnets.flatMap((dotDubnet, i) => makeSubnets(dotDubnet, `_lb`, i)))
         databags.push(
             cloudResource('aws_security_group', `aws_fargate_task_${bag.Name}_lb_secgr`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
@@ -395,8 +446,36 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 to_port: 65535,
                 protocol: -1,
                 cidr_blocks: ['0.0.0.0/0']
-            })
+            }),
+            //allow all ports in load_balancer.port_mapping, this might define duplicates with network mode ingress rule but i think it's ok
+            ...portsToOpenLoadBalancer.map(obj => cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_secgr_ingress`, {
+                type: 'ingress',
+                security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+                from_port: parseInt(obj.load_balancer_port),
+                to_port: parseInt(obj.load_balancer_port),
+                protocol: asSgProtocol(obj.protocol),
+                cidr_blocks: ['0.0.0.0/0']
+            })),
+            ...portsToOpenLoadBalancer.flatMap(obj => [
+                cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener`, {
+                    load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                    port: obj.load_balancer_port,
+                    protocol: asLbProtocol(obj.protocol),
+                    default_action: asBlock([{
+                        type: 'forward',
+                        target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`)
+                    }])
+                }),
+                cloudResource('aws_lb_target_group', `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target`, {
+                    name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-lb-tg`]),
+                    port: obj.target_port,
+                    protocol: asLbProtocol(obj.protocol),
+                    vpc_id: appendToTraversal(vpcRef, 'id'),
+                    target_type: 'ip',
+                })
+            ])
         )
+        
         if (loadBalancerType === 'application') {
             databags.push(
                 cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_http_lb_secgr_ingress`, {
@@ -406,36 +485,150 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     to_port: 80,
                     protocol: 'tcp',
                     cidr_blocks: ['0.0.0.0/0']
-                }),
-                cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_https_lb_secgr_ingress`, {
-                    type: 'ingress',
-                    security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
-                    from_port: 443,
-                    to_port: 443,
-                    protocol: 'tcp',
-                    cidr_blocks: ['0.0.0.0/0']
                 })
             )
-        }
-        if(dotLoadBalancer.open_port) {
-            const portsToOpen: DatabagObjVal[] = asValArrayConst(dotLoadBalancer.open_port)
-            databags.push(
-                ...portsToOpen.map((openPort, i) => {
-                    if((!openPort.port && !openPort.from_port) || (!openPort.port && !openPort.to_port)) {
-                        throw new Error(`aws_fargate_service.${bag.Name}.load_balacner.open_port[${i}] must have either port or from_port and to_port`)
-                    }
-                    const protocol = asStr(openPort.protocol || 'tcp')
-                    const fromPort = asVal(openPort.from_port || openPort.port!)
-                    const toPort = asVal(openPort.to_port || openPort.port!)
-                    return cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_${protocol}${fromPort}-${toPort}_lb_secgr_ingress`, {
+            if(enableHttps) {
+                databags.push(
+                    cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_https_lb_secgr_ingress`, {
                         type: 'ingress',
                         security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
-                        from_port: fromPort,
-                        to_port: toPort,
-                        protocol: protocol,
+                        from_port: 443,
+                        to_port: 443,
+                        protocol: 'tcp',
                         cidr_blocks: ['0.0.0.0/0']
                     })
-                }),
+                )
+            }
+            if(portsToOpen.length === 1) {
+                //map 80 and 443 on load balancer to the only opened port on container
+                databags.push(
+                    cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_lonely_http_lb_listener`, {
+                        load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                        port: 80,
+                        protocol: 'HTTP',
+                        default_action: asBlock([{
+                            type: 'forward',
+                            target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_lonely_http_lb_listener_target.arn`)
+                        }])
+                    }),
+                    cloudResource('aws_lb_target_group', `aws_fargate_task_${bag.Name}_lonely_http_lb_listener_target`, {
+                        name: appendToTemplate(namePrefix, [`${bag.Name}-lhttp-lb-tg`]),
+                        port: portsToOpen[0].port,
+                        protocol: asLbProtocol(portsToOpen[0].protocol),
+                        vpc_id: appendToTraversal(vpcRef, 'id'),
+                        target_type: 'ip',
+                    })
+                )
+            } else if(portsToOpen.some(obj => obj.port === '80' || obj.port === '443')) {
+                //map 80 and 443 on load balancer to opened ports on container that are 80 and 443
+                const eightyIsOpen = portsToOpen.some(obj => obj.port === '80')
+                const fourFourThreeIsOpen = portsToOpen.some(obj => obj.port === '443')
+                if(eightyIsOpen) {
+                    databags.push(
+                        cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_http_lb_listener`, {
+                            load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                            port: 80,
+                            protocol: 'HTTP',
+                            default_action: asBlock([{
+                                type: 'forward',
+                                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_http_lb_listener_target.arn`)
+                            }])
+                        }),
+                        cloudResource('aws_lb_target_group', `aws_fargate_task_${bag.Name}_http_lb_listener_target`, {
+                            name: appendToTemplate(namePrefix, [`${bag.Name}-http-lb-tg`]),
+                            port: 80,
+                            protocol: 'HTTP',
+                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            target_type: 'ip',
+                        })
+                    )
+                }
+                if(fourFourThreeIsOpen) {
+                    // we map either 80 or 443 on the load balancer to 443 on the container
+                    // because if https is not enabled on the load balancer then we dont want to map 443 on the load balancer to 443 on the container
+                    if(enableHttps) {
+                        databags.push(
+                            cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_https_lb_listener`, {
+                                load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                                port: 443,
+                                protocol: 'HTTPS',
+                                certificate_arn: TODO,
+                                default_action: asBlock([{
+                                    type: 'forward',
+                                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_https_lb_listener_target.arn`)
+                                }])
+                            }),
+                        )
+                    } else if(!eightyIsOpen) {
+                        databags.push(
+                            cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_http_lb_listener`, {
+                                load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                                port: 80,
+                                protocol: 'HTTP',
+                                default_action: asBlock([{
+                                    type: 'forward',
+                                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_https_lb_listener_target.arn`)
+                                }])
+                            })
+                        )
+                    }
+                    databags.push(
+                        cloudResource('aws_lb_target_group', `aws_fargate_task_${bag.Name}_https_lb_listener_target`, {
+                            name: appendToTemplate(namePrefix, [`${bag.Name}-https-lb-tg`]),
+                            port: 443,
+                            protocol: 'HTTPS',
+                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            target_type: 'ip',
+                        })
+                    )
+                }
+            } else {
+                // some other ports are open on the container, we're not implcitly mapping 80 and 443 to them
+                // to do that the user will need to use the port_mapping block
+            }
+        }
+        if(loadBalancerType === 'network') {
+            databags.push(
+                ...portsToOpen.map(obj => cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.port}_lb_secgr_ingress`, {
+                    type: 'ingress',
+                    security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+                    from_port: parseInt(obj.port),
+                    to_port: parseInt(obj.port),
+                    protocol: obj.protocol,
+                    cidr_blocks: ['0.0.0.0/0']
+                }))
+            )
+            //if no port_mapping are explicitly defined, we map all ports to the same port on the container (because we are a network load balancer only)
+            if(!dotLoadBalancer.port_mapping) {
+                databags.push(
+                    ...portsToOpen.flatMap(obj => [
+                        cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener`, {
+                            load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                            port: obj.port,
+                            //listeners attaches to network load balancers must be TCP
+                            protocol: 'TCP',
+                            default_action: asBlock([{
+                                type: 'forward',
+                                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener_target.arn`)
+                            }])
+                        }),
+                        cloudResource('aws_lb_target_group', `aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener_target`, {
+                            name: appendToTemplate(namePrefix, [`${bag.Name}-net${obj.port}-lb-tg`]),
+                            port: obj.port,
+                            protocol: 'TCP',
+                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            target_type: 'ip',
+                        })
+                    ])
+                )
+            }
+        }
+        if(defineAccessLogsResources && !dotAccessLogs.bucket) {
+            databags.push(
+                cloudResource('aws_s3_bucket', `aws_fargate_task_${bag.Name}_lb_access_logs_bucket`, {
+                    bucket: appendToTemplate(namePrefix, [`${bag.Name}-lb-access-logs`]),
+                    force_destroy: true,
+                })
             )
         }
 
@@ -444,11 +637,27 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-lb`]),
                 internal,
                 load_balancer_type: loadBalancerType,
-                subnets: subnetIds,
-                security_groups: loadBalancerType === 'application' ? [securityGroupId] : null,
+                subnets: 'TODO',
+                security_groups: [
+                    asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`)
+                ],
+                access_logs: defineAccessLogsResources ? asBlock([{
+                    enabled: dotAccessLogs.enabled || true,
+                    bucket: dotAccessLogs.bucket ? dotAccessLogs.bucket : asTraversal(`aws_s3_bucket.aws_fargate_task_${bag.Name}_lb_access_logs_bucket.id`),
+                    prefix: dotAccessLogs.prefix || appendToTemplate(namePrefix, [`${bag.Name}-lb-access-logs`]),
+                }]) : null,
+                customer_owned_ipv4_pool: dotLoadBalancer.customer_owned_ipv4_pool,
+                desync_mitigation_mode: dotLoadBalancer.desync_mitigation_mode,
+                drop_invalid_header_fields: dotLoadBalancer.drop_invalid_header_fields,
+                enable_cross_zone_load_balancing: dotLoadBalancer.enable_cross_zone_load_balancing,
+                enable_deletion_protection: dotLoadBalancer.enable_deletion_protection,
+                enable_http2: dotLoadBalancer.enable_http2,
+                enable_waf_fail_open: dotLoadBalancer.enable_waf_fail_open,
+                idle_timeout: dotLoadBalancer.idle_timeout,
+                ip_address_type: dotLoadBalancer.ip_address_type,
+                preserve_host_header: dotLoadBalancer.preserve_host_header,
             }),
         )
-
     }
 
     databags.push(
@@ -504,7 +713,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         cloudResource('aws_ecs_service', `${bag.Name}_fargate_service`, ecsService)
     )
 
-    return []
+    return databags
 }
 
 
