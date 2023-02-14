@@ -35,13 +35,66 @@ export function applyDefaults(container: DatabagContainer, block: SyntaxToken): 
     const blockVal = asVal(mergeTokens([defaults, block])) as DatabagObjVal;
     return [
         blockVal,
-        compileNamePrefix(blockVal)
+        compileNamePrefix(container, block)
     ];
 }
 
-export function compileNamePrefix(blockVal: DatabagObjVal): SyntaxToken {
-    //TODO this is going to change to allow using strings instead of array for name_prefix
-    return concatStrArr(blockVal.name_prefix || asSyntax([]));
+export function compileNamePrefix(container: DatabagContainer, block: SyntaxToken): SyntaxToken {
+    let namePrefixes: SyntaxToken[] = []
+    if (container.global_default) {
+        const globalDefaults = Object.values(container.global_default)
+            .flatMap(group => group.map(block => block.Value!))
+            .filter(block => block)
+            .flatMap(block => block.ObjectConst?.filter(pair => pair.Key === 'name_prefix'))
+            .filter(block => block)
+            .map(block => block!.Value)
+        namePrefixes.push(...globalDefaults);
+    }
+
+    let defaultName: string
+    const copyFrom = block.ObjectConst?.find(pair => pair.Key === 'copy_from');
+    if(copyFrom) {
+        defaultName = asStr(copyFrom.Value);
+    } else {
+        // the unamed default block is actually named ''
+        defaultName = '';
+    }
+
+    if (container.default && container.default[defaultName]) {
+        const defaults = container.default[defaultName]
+            .map(bag => bag.Value!)
+            .filter(block => block)
+            .flatMap(block => block.ObjectConst?.filter(pair => pair.Key === 'name_prefix'))
+            .filter(block => block)
+            .map(block => block!.Value)
+        namePrefixes.push(...defaults);
+    }
+    namePrefixes.push(...(block.ObjectConst?.filter(pair => pair.Key === 'name_prefix').map(pair => pair.Value) || []))
+
+    let output: SyntaxToken = {
+        Type: 'template',
+        Parts: []
+    }
+    const mergeIn = (namePrefixToken: SyntaxToken) => {
+        switch(namePrefixToken.Type) {
+            case 'literal_value':
+                output.Parts!.push(namePrefixToken);
+                break;
+            case 'template':
+                output.Parts!.push(...(namePrefixToken.Parts || []));
+                break;
+            case 'array_const':
+                namePrefixToken.ArrayConst?.forEach(mergeIn);
+                break
+            default:
+                console.log('unknown name_prefix type \'', namePrefixToken.Type, '\'');
+        }
+    }
+
+    for(const namePrefixToken of namePrefixes) {
+        mergeIn(namePrefixToken)
+    }
+    return output;
 }
 
 export function compileGlobalNamePrefix(container: DatabagContainer): SyntaxToken {
@@ -105,14 +158,14 @@ export function preConfTraversalTransform(blockVal: Databag) {
 //TODO we should group the requests for gcs token and aws creds together
 //to avoid the overhead of multiple requests (parsing/marhsalling/component execution)
 let __gcpTokenCached = '';
-export function getGcpToken(): string | undefined {
+export function getGcpToken(optional: boolean): string | undefined {
     if(__gcpTokenCached) {
         return __gcpTokenCached;
     }
     const transformed = applyTransformers([{
         Name: "state_store_credentials",
         Type: "gcp_token_request",
-        Value: {}
+        Value: { optional }
     }])
     const token = transformed.gcp_token?.state_store_credentials[0]?.Value
     if(!token) {

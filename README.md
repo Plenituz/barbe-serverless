@@ -89,7 +89,7 @@ aws_function "my-func" {
 }
 ```
 
-Interested? Need some help? Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
+Interested? Need some help? Reach out on [Discord](https://hub.barbe.app/discord)!
 
 Quick links:
 - [Getting started in 5 minutes](./docs/getting-started.md)
@@ -130,4 +130,4 @@ Otherwise, get started with the [installation](./docs/installation.md) and [guid
 
 Feel free to open an issue for **any** reason, would love to hear from you!
 
-Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
+Reach out on [Discord](https://hub.barbe.app/discord)!

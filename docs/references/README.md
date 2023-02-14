@@ -10,6 +10,7 @@ In this folder you will find detailed documentation for the various blocks Barbe
 - [aws_iam_lambda_role](./aws_iam_lambda_role.md)
 - [for_each](./for_each.md)
 - [state_store](./state_store.md)
+- [git_clone](./git_clone.md)
 
 Also see: 
 - [default and global_default blocks](../default-blocks.md)

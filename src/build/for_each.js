@@ -1,8 +1,8 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var FOR_EACH = "for_each";
-  var BARBE_SLS_VERSION = "v0.1.1";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
+  var BARBE_SLS_VERSION = "v0.2.2";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -240,35 +240,6 @@
       return token;
     }
   }
-  function asTemplateStr(arr) {
-    if (!Array.isArray(arr)) {
-      arr = [arr];
-    }
-    return {
-      Type: "template",
-      Parts: arr.map((item) => {
-        if (typeof item === "string") {
-          return {
-            Type: "literal_value",
-            Value: item
-          };
-        }
-        if (item.Type === "scope_traversal" || item.Type === "relative_traversal" || item.Type === "literal_value" || item.Type === "template") {
-          return item;
-        }
-        return {
-          Type: "literal_value",
-          Value: asStr(item)
-        };
-      })
-    };
-  }
-  function concatStrArr(token) {
-    return {
-      Type: "template",
-      Parts: asTemplateStr(token.ArrayConst || []).Parts?.flat() || []
-    };
-  }
   function iterateAllBlocks(container2, func) {
     const types = Object.keys(container2);
     let output = [];
@@ -351,11 +322,50 @@
     const blockVal = asVal(mergeTokens([defaults, block]));
     return [
       blockVal,
-      compileNamePrefix(blockVal)
+      compileNamePrefix(container2, block)
     ];
   }
-  function compileNamePrefix(blockVal) {
-    return concatStrArr(blockVal.name_prefix || asSyntax([]));
+  function compileNamePrefix(container2, block) {
+    let namePrefixes = [];
+    if (container2.global_default) {
+      const globalDefaults = Object.values(container2.global_default).flatMap((group) => group.map((block2) => block2.Value)).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...globalDefaults);
+    }
+    let defaultName;
+    const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
+    if (copyFrom) {
+      defaultName = asStr(copyFrom.Value);
+    } else {
+      defaultName = "";
+    }
+    if (container2.default && container2.default[defaultName]) {
+      const defaults = container2.default[defaultName].map((bag) => bag.Value).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...defaults);
+    }
+    namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    let output = {
+      Type: "template",
+      Parts: []
+    };
+    const mergeIn = (namePrefixToken) => {
+      switch (namePrefixToken.Type) {
+        case "literal_value":
+          output.Parts.push(namePrefixToken);
+          break;
+        case "template":
+          output.Parts.push(...namePrefixToken.Parts || []);
+          break;
+        case "array_const":
+          namePrefixToken.ArrayConst?.forEach(mergeIn);
+          break;
+        default:
+          console.log("unknown name_prefix type '", namePrefixToken.Type, "'");
+      }
+    };
+    for (const namePrefixToken of namePrefixes) {
+      mergeIn(namePrefixToken);
+    }
+    return output;
   }
 
   // for_each.ts
@@ -387,7 +397,7 @@
     }
     const [block, _] = applyDefaults(container, bag.Value);
     if (!block[bag.Name]) {
-      throw new Error(`for_each: cannot iterate over undefined property: '${bag.Name}'. You probably want to add it to the default block`);
+      throw new Error(`for_each: cannot iterate over undefined property: '${bag.Name}'. You probably want to add it to the 'default' block`);
     }
     const arrToIterate = asVal(block[bag.Name]);
     if (!Array.isArray(arrToIterate)) {

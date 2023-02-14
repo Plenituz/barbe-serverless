@@ -38,12 +38,15 @@
           importComponentInput.input[type][name].push(databag);
         }
       }
-      const id = `${component.name}_${component.url}`;
+      const id = `${component.name || ""}_${component.url}`;
       barbeImportComponent.push({
         Type: "barbe_import_component",
         Name: id,
         Value: importComponentInput
       });
+    }
+    if (barbeImportComponent.length === 0) {
+      return {};
     }
     const resp = barbeRpcCall({
       method: "importComponents",
@@ -73,8 +76,8 @@
   }
 
   // barbe-sls-lib/consts.ts
-  var BARBE_SLS_VERSION = "v0.1.1";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute/${BARBE_SLS_VERSION}/.js`;
+  var BARBE_SLS_VERSION = "v0.2.2";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
   // default_terraform.ts
   var container = readDatabagContainer();

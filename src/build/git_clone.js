@@ -1,6 +1,6 @@
 (() => {
   // barbe-sls-lib/consts.ts
-  var AWS_KINESIS_STREAM = "aws_kinesis_stream";
+  var GIT_CLONE = "git_clone";
   var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
 
@@ -93,6 +93,21 @@
         };
     }
   }
+  function isSimpleTemplate(token) {
+    if (!token) {
+      return false;
+    }
+    if (typeof token === "string" || token.Type === "literal_value") {
+      return true;
+    }
+    if (token.Type !== "template") {
+      return false;
+    }
+    if (!token.Parts) {
+      return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -137,62 +152,6 @@
       return token;
     }
   }
-  function asTraversal(str) {
-    return {
-      Type: "scope_traversal",
-      // TODO will output correct string for indexing ("abc[0]") but
-      // is using the wrong syntax token (Type: "attr" instead of Type: "index")
-      Traversal: str.split(".").map((part) => ({
-        Type: "attr",
-        Name: part
-      }))
-    };
-  }
-  function appendToTemplate(source, toAdd) {
-    let parts = [];
-    if (source.Type === "template") {
-      parts = source.Parts?.slice() || [];
-    } else if (source.Type === "literal_value") {
-      parts = [source];
-    } else {
-      parts = [source];
-    }
-    parts.push(...toAdd.map(asSyntax));
-    return {
-      Type: "template",
-      Parts: parts
-    };
-  }
-  function asBlock(arr) {
-    return {
-      Type: "array_const",
-      Meta: { IsBlock: true },
-      ArrayConst: arr.map((obj) => {
-        if (typeof obj === "function") {
-          const { block, labels } = obj();
-          return {
-            Type: "object_const",
-            Meta: {
-              IsBlock: true,
-              Labels: labels
-            },
-            ObjectConst: Object.keys(block).map((key) => ({
-              Key: key,
-              Value: asSyntax(block[key])
-            }))
-          };
-        }
-        return {
-          Type: "object_const",
-          Meta: { IsBlock: true },
-          ObjectConst: Object.keys(obj).map((key) => ({
-            Key: key,
-            Value: asSyntax(obj[key])
-          }))
-        };
-      })
-    };
-  }
   function iterateAllBlocks(container2, func) {
     const types = Object.keys(container2);
     let output = [];
@@ -219,37 +178,6 @@
     }
     return output;
   }
-  function cloudResourceRaw(params) {
-    let typeStr = "cr_";
-    if (params.kind) {
-      typeStr += "[" + params.kind;
-      if (params.id) {
-        typeStr += "(" + params.id + ")";
-      }
-      typeStr += "]";
-      if (params.type) {
-        typeStr += "_";
-      }
-    }
-    if (params.type) {
-      typeStr += params.type;
-    }
-    let value = params.value || {};
-    value = asSyntax(value);
-    if (params.dir) {
-      value = {
-        ...value,
-        Meta: {
-          sub_dir: params.dir
-        }
-      };
-    }
-    return {
-      Type: typeStr,
-      Name: params.name,
-      Value: value
-    };
-  }
   function exportDatabags(bags) {
     if (!Array.isArray(bags)) {
       bags = iterateAllBlocks(bags, (bag) => bag);
@@ -267,6 +195,18 @@
       throw new Error(resp.error);
     }
   }
+  function applyTransformers(input) {
+    const resp = barbeRpcCall({
+      method: "transformContainer",
+      params: [{
+        databags: input
+      }]
+    });
+    if (isFailure(resp)) {
+      throw new Error(resp.error);
+    }
+    return resp.result;
+  }
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
@@ -278,6 +218,9 @@
   }
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
+  }
+  function barbeOutputDir() {
+    return os.getenv("BARBE_OUTPUT_DIR");
   }
 
   // barbe-sls-lib/lib.ts
@@ -351,62 +294,50 @@
     }
     return output;
   }
-  function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
-    const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
-    const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
-    return (type, name, value) => {
-      value = {
-        provider: blockVal.region && type.includes("aws") ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
-        ...preconf,
-        ...value
-      };
-      return cloudResourceRaw({
-        kind,
-        dir: cloudResourceDir,
-        id: cloudResourceId,
-        type,
-        name,
-        value: Object.entries(value).filter(([_, v]) => v !== null && v !== void 0).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
-        ...bagPreconf
-      });
-    };
-  }
-  function preConfTraversalTransform(blockVal) {
-    return (name, transforms) => ({
-      Name: `${blockVal.Name}_${name}`,
-      Type: "traversal_transform",
-      Value: transforms
-    });
-  }
 
-  // aws_kinesis.ts
+  // git_clone.ts
   var container = readDatabagContainer();
+  var outputDir = barbeOutputDir();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function awsKinesisStreamIterator(bag) {
+  function gitCloneIterator(bag) {
     if (!bag.Value) {
       return [];
     }
-    const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResource = preConfCloudResourceFactory(block, "resource");
-    const traversalTransform = preConfTraversalTransform(bag);
-    let databags = [
-      traversalTransform("aws_kinesis_streams_traversal_transform", {
-        [`aws_kinesis_stream.${bag.Name}`]: `aws_kinesis_stream.${bag.Name}_aws_kinesis_stream`
-      }),
-      cloudResource("aws_kinesis_stream", `${bag.Name}_aws_kinesis_stream`, {
-        name: appendToTemplate(namePrefix, [bag.Name]),
-        shard_count: block.shard_count || 1,
-        retention_period: block.retention_period,
-        shard_level_metrics: block.shard_level_metrics,
-        enforce_consumer_deletion: block.enforce_consumer_deletion,
-        encryption_type: block.encryption_type,
-        kms_key_id: block.kms_key_id,
-        stream_mode_details: block.stream_mode ? asBlock([{
-          stream_mode: block.stream_mode
-        }]) : void 0
-      })
+    const [block, _] = applyDefaults(container, bag.Value);
+    if (!block.uri) {
+      throw new Error(`git_clone '${bag.Name}' block is missing the 'uri' parameter (ie: uri = "https://github.com/user/repo")`);
+    }
+    if (!isSimpleTemplate(block.uri)) {
+      return [];
+    }
+    const dirName = `git_clone_${bag.Name}`;
+    const uri = asStr(block.uri);
+    return [
+      {
+        Type: "traversal_map",
+        Name: "git_clone_traversal_map",
+        Value: {
+          [`git_clone.${bag.Name}.dir`]: `${outputDir}/${dirName}`
+        }
+      },
+      {
+        Type: "buildkit_run_in_container",
+        Name: `git_clone_${bag.Name}`,
+        Value: {
+          display_name: `git clone - ${bag.Name}`,
+          no_cache: true,
+          // TODO request local git credentials
+          dockerfile: `
+                    FROM alpine/git:latest
+                    RUN git clone ${uri} output`,
+          exported_files: {
+            "output": dirName
+          }
+        }
+      }
     ];
-    return databags;
   }
-  exportDatabags(iterateBlocks(container, AWS_KINESIS_STREAM, awsKinesisStreamIterator).flat());
+  exportDatabags(applyTransformers([
+    ...iterateBlocks(container, GIT_CLONE, gitCloneIterator).flat()
+  ]));
 })();
