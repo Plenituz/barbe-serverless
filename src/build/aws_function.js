@@ -434,6 +434,7 @@
         [`aws_function.${bag.Name}`]: `aws_lambda_function.${bag.Name}_lambda`,
         [`aws_function.${bag.Name}.function_url`]: `aws_lambda_function_url.${bag.Name}_lambda_url.function_url`
       }),
+      //TODO allow using existing bucket
       cloudResource("aws_s3_bucket", "deployment_bucket", {
         bucket: appendToTemplate(namePrefix, ["deploy-bucket"]),
         force_destroy: true

@@ -546,6 +546,15 @@ export function asTraversal(str: string): SyntaxToken {
     };
 }
 
+export function asBinaryOp(left: SyntaxToken | number, op: string, right: SyntaxToken | number): SyntaxToken {
+    return {
+        Type: "binary_op",
+        LeftHandSide: asSyntax(left),
+        Operator: op,
+        RightHandSide: asSyntax(right)
+    };
+}
+
 export function appendToTraversal(source: SyntaxToken, toAdd: string): SyntaxToken {
     return {
         Type: source.Type,

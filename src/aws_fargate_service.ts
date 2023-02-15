@@ -1,25 +1,17 @@
-import {
-    asStr,
-    asSyntax,
-    asTemplate,
-    asVal,
-    Databag, exportDatabags,
-    iterateBlocks,
-    onlyRunForLifecycleSteps,
-    readDatabagContainer,
-    SugarCoatedDatabag
-} from "./barbe-std/utils";
-import { AWS_FARGATE_SERVICE, AWS_DYNAMODB, AWS_S3 } from './barbe-sls-lib/consts';
+import { asBinaryOp, asStr, asSyntax, asTemplate, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, ImportComponentInput, importComponents } from './barbe-std/utils';
+import { AWS_FARGATE_SERVICE, AWS_DYNAMODB, AWS_S3, AWS_NETWORK_URL, AWS_NETWORK } from './barbe-sls-lib/consts';
 import { applyDefaults, preConfCloudResourceFactory, preConfTraversalTransform, compileBlockParam, DatabagObjVal } from './barbe-sls-lib/lib';
 import { appendToTemplate, SyntaxToken, asTraversal, asFuncCall, appendToTraversal, asValArrayConst, asBlock, uniq } from './barbe-std/utils';
+import { DBAndImport } from '../../anyfront/src/anyfront-lib/lib';
+import { domainBlockResources } from './barbe-sls-lib/helpers';
 
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
 
-function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
+function awsFargateIterator(bag: Databag): DBAndImport {
     if (!bag.Value) {
-        return []
+        return { databags: [], imports: [] }
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value!);
     const cloudResourceId = block.cloudresource_id ? asStr(block.cloudresource_id) : undefined
@@ -32,9 +24,8 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const dotAutoScaling = compileBlockParam(block, 'auto_scaling')
     const dotContainerImage = compileBlockParam(block, 'container_image')
     const dotEcrRepository = compileBlockParam(block, 'ecr_repository')
-    const dotVpc = compileBlockParam(block, 'ecr_repository')
+    const dotNetwork = compileBlockParam(block, 'network')
     const dotLoadBalancer = compileBlockParam(block, 'load_balancer')
-    const dotSubnets: DatabagObjVal[] = asValArrayConst(block.subnets || asSyntax([{/*this makes a default subnet if none defined*/}]))
     
     const cpu = block.cpu || 256
     const memory = block.memory || 512
@@ -57,68 +48,22 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     let executionRole: SyntaxToken
     let repositoryUrl: SyntaxToken
     let securityGroupId: SyntaxToken
-    let vpcRef: SyntaxToken
     let subnetIds: SyntaxToken
-    let currentCidrOffset = 0
-
-    const makeSubnets = (dotSubnet: DatabagObjVal, nameSuffix: string, index: number): SugarCoatedDatabag[] => {
-        const makeNatGateway = asVal(dotSubnet.make_nat_gateway || asSyntax(false))
-        const kind = asStr(dotSubnet.kind || 'public') as 'public' | 'private'
-        let localDatabags: SugarCoatedDatabag[] = [
-            // TODO create 1 subnet per AZ
-            cloudResource('aws_subnet', `aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}`, {
-                vpc_id: appendToTraversal(vpcRef, 'id'),
-                availability_zone: asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`),
-                cidr_block: dotSubnet.cidr_block || asFuncCall('cidrsubnet', [
-                    appendToTraversal(vpcRef, 'cidr_block'),
-                    4,
-                    index+1+(currentCidrOffset++),
-                ])
-            }),
-            cloudResource('aws_route_table', `aws_fargate_task_${bag.Name}_subnet_${index}_route_table${nameSuffix}`, {
-                vpc_id: appendToTraversal(vpcRef, 'id'),
-                route: asBlock([{
-                    cidr_block: '0.0.0.0/0',
-                    gateway_id: kind === 'public' ? asTraversal(`aws_internet_gateway.aws_fargate_task_${bag.Name}_subnet_${index}_igw${nameSuffix}.id`) : null,
-                    nat_gateway_id: kind === 'private' && makeNatGateway ? asTraversal(`aws_nat_gateway.aws_fargate_task_${bag.Name}_subnet_${index}_nat_gateway${nameSuffix}.id`) : null,
-                }]),
-                tags: {
-                    Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, '-rt']) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-rt${nameSuffix}`]),
-                }
-            }),
-            cloudResource('aws_route_table_association', `aws_fargate_task_${bag.Name}_subnet_${index}_route_table_association${nameSuffix}`, {
-                subnet_id: asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}.id`),
-                route_table_id: asTraversal(`aws_route_table.aws_fargate_task_${bag.Name}_subnet_${index}_route_table${nameSuffix}.id`),
-            })
-        ]
-        if(kind === 'private' && makeNatGateway) {
-            localDatabags.push(
-                cloudResource('aws_eip', `aws_fargate_task_${bag.Name}_subnet_${index}_nat_eip${nameSuffix}`, {
-                    vpc: true,
-                }),
-                cloudResource('aws_nat_gateway', `aws_fargate_task_${bag.Name}_subnet_${index}_nat_gateway${nameSuffix}`, {
-                    allocation_id: asTraversal(`aws_eip.aws_fargate_task_${bag.Name}_subnet_${index}_nat_eip${nameSuffix}.id`),
-                    subnet_id: asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}.id`),
-                    tags: {
-                        Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, '-nat']) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-nat${nameSuffix}`]),
-                    }
-                })
-            )
-        }
-        if(kind === 'public') {
-            localDatabags.push(
-                cloudResource('aws_internet_gateway', `aws_fargate_task_${bag.Name}_subnet_${index}_igw${nameSuffix}`, {
-                    vpc_id: appendToTraversal(vpcRef, 'id'),
-                    tags: {
-                        Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, '-igw']) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-igw${nameSuffix}`]),
-                    }
-                })
-            )
-        }
-        return localDatabags
-    }
-
     let databags: SugarCoatedDatabag[] = []
+    let imports: ImportComponentInput[] = [{
+        url: AWS_NETWORK_URL,
+        input: [{
+            Type: AWS_NETWORK,
+            Name: `aws_fargate_service_${bag.Name}`,
+            Value: {
+                use_default_vpc: dotNetwork.use_default_vpc,
+                vpc_id: dotNetwork.vpc_id,
+                cidr_block: dotNetwork.cidr_block,
+                make_nat_gateway: dotNetwork.make_nat_gateway,
+                one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az,
+            }
+        }]
+    }]
 
     if(block.execution_role_arn) {
         executionRole = block.execution_role_arn
@@ -184,32 +129,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             )
         }
     }
-    if(useDefaultVpc) {
-        vpcRef = asTraversal('data.aws_vpc.default.id')
-        databags.push(
-            cloudData('aws_vpc', 'default', {
-                default: true,
-            })
-        )
-    } else if(block.vpc_id) {
-        vpcRef = asTraversal(`data.aws_vpc.aws_fargate_task_${bag.Name}_imported_vpc`)
-        databags.push(
-            cloudData('aws_vpc', `aws_fargate_task_${bag.Name}_imported_vpc`, {
-                id: block.vpc_id,
-            })
-        )
-    } else {
-        vpcRef = asTraversal(`aws_vpc.aws_fargate_task_${bag.Name}_vpc`)
-        databags.push(
-            cloudResource('aws_vpc', `aws_fargate_task_${bag.Name}_vpc`, {
-                tags: {
-                    Name: dotVpc.name || appendToTemplate(namePrefix, [`${bag.Name}-vpc`]),
-                },
-                cidr_block: dotVpc.cidr_block || '10.0.0.0/16',
-                enable_dns_hostnames: true,
-            })
-        )
-    }
+
     if(block.security_group_id) {
         securityGroupId = block.security_group_id
     } else {
@@ -217,7 +137,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         databags.push(
             cloudResource('aws_security_group', `aws_fargate_task_${bag.Name}_secgr`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
-                vpc_id: appendToTraversal(vpcRef, 'id')
+                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
             }),
             //allow all traffic from elements in the same security group
             cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_self_secgr_ingress`, {
@@ -248,24 +168,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             })
         )
     }
-    if(block.subnet_ids) {
-        subnetIds = block.subnet_ids
-    } else {
-        subnetIds = asSyntax(dotSubnets.map((_, i) => asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${i}.id`)))
-        databags.push(
-            ...dotSubnets.flatMap((dotSubnet, i) => makeSubnets(dotSubnet, '', i))
-        )
-    }
     if (block.auto_scaling) {
-        /*
-        resource "aws_appautoscaling_target" "ecs_target" {
-            max_capacity       = 4
-            min_capacity       = 1
-            resource_id        = "service/${aws_ecs_cluster.example.name}/${aws_ecs_service.example.name}"
-            scalable_dimension = "ecs:service:DesiredCount"
-            service_namespace  = "ecs"
-        }
-        */
         let predefinedMetric = 'ECSServiceAverageCPUUtilization'
         if (dotAutoScaling.metric) {
             const metric = asStr(dotAutoScaling.metric)
@@ -310,33 +213,6 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }),
         )
     }
-    if(container[AWS_DYNAMODB] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-        asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`)
-        databags.push(
-            cloudResource('aws_vpc_endpoint', `${bag.Name}_fargate_ddb_vpc_endpoint`, {
-                vpc_id: appendToTraversal(vpcRef, 'id'),
-                service_name: asTemplate([
-                    'com.amazonaws.',
-                    asTraversal(`data.aws_region.${regionDataName}.name`),
-                    '.dynamodb'
-                ]),
-                route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`),
-            })
-        )
-    }
-    if(container[AWS_S3] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-        databags.push(
-            cloudResource('aws_vpc_endpoint', `${bag.Name}_fargate_s3_vpc_endpoint`, {
-                vpc_id: appendToTraversal(vpcRef, 'id'),
-                service_name: asTemplate([
-                    'com.amazonaws.',
-                    asTraversal(`data.aws_region.${regionDataName}.name`),
-                    '.s3'
-                ]),
-                route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`),
-            })
-        )
-    }
 
     let ecsService: any = {
         name: appendToTemplate(namePrefix, [bag.Name]),
@@ -347,7 +223,27 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         enable_ecs_managed_tags: true,
         propagate_tags: 'SERVICE',
         network_configuration: asBlock([{
-            subnets: subnetIds,
+            subnets: (() => {
+                if(block.task_accessibility) {
+                    const accessibility = asStr(block.task_accessibility)
+                    switch(accessibility) {
+                        case 'public':
+                            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets`)
+                        case 'private':
+                            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`)
+                        default:
+                            throw new Error(`Unknown value '${accessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`)
+                    }
+                }
+                if(block.load_balancer) {
+                    return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`)
+                }
+                //this doesnt cover the case where the network is given as an external block `network = aws_network.my_network`
+                if(block.network && dotNetwork.make_nat_gateway && asVal(dotNetwork.make_nat_gateway)) {
+                    return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`)
+                }
+                return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets`)
+            })(),
             security_groups: [securityGroupId],
             assign_public_ip: true,
         }]),
@@ -367,12 +263,6 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
     
     if(block.load_balancer) {
-        //TODO add to ecsService
-        //TODO subnets for lb
-
-        //access logs might be disabled with `access_logs { enabled = false }` but we still define the resources if access_logs is defined
-        //because if the access logs were previously enabled, we would delete the existing logs when the user might just want it temporarily disabled
-
         const asSgProtocol = (protocol: string) => {
             switch(protocol.toLowerCase()) {
                 case 'http':
@@ -396,6 +286,8 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         }
 
         const enableHttps = !!dotLoadBalancer.domain
+        //access logs might be disabled with `access_logs { enabled = false }` but we still define the resources if access_logs is defined
+        //because if the access logs were previously enabled, we would delete the existing logs when the user might just want it temporarily disabled
         const defineAccessLogsResources = asVal(dotLoadBalancer.enable_access_logs || asSyntax(false)) || !!dotAutoScaling.access_logs
         const dotAccessLogs = compileBlockParam(dotLoadBalancer, 'access_logs')
         const portMappingLoadBalancer: DatabagObjVal[] = asValArrayConst(dotLoadBalancer.port_mapping || asSyntax([]))
@@ -419,15 +311,12 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }
         }), x => `${x.target_port}-${x.load_balancer_port}-${x.protocol}`)
 
-        //https://github.com/strvcom/terraform-aws-fargate/blob/master/main.tf
         const loadBalancerType = asStr(dotLoadBalancer.type || 'application')
         const internal = asVal(dotLoadBalancer.internal || asSyntax(false))
-        const loadBalancerDotSubnets: DatabagObjVal[] = asValArrayConst(block.subnets || asSyntax([{/*this makes a default subnet if none defined*/}]))
-        databags.push(...loadBalancerDotSubnets.flatMap((dotDubnet, i) => makeSubnets(dotDubnet, `_lb`, i)))
         databags.push(
             cloudResource('aws_security_group', `aws_fargate_task_${bag.Name}_lb_secgr`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
-                vpc_id: appendToTraversal(vpcRef, 'id')
+                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
             }),
             //allow all traffic from elements in the same security group
             cloudResource('aws_security_group_rule', `aws_fargate_task_${bag.Name}_lb_self_secgr_ingress`, {
@@ -470,7 +359,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-lb-tg`]),
                     port: obj.target_port,
                     protocol: asLbProtocol(obj.protocol),
-                    vpc_id: appendToTraversal(vpcRef, 'id'),
+                    vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                     target_type: 'ip',
                 })
             ])
@@ -515,7 +404,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                         name: appendToTemplate(namePrefix, [`${bag.Name}-lhttp-lb-tg`]),
                         port: portsToOpen[0].port,
                         protocol: asLbProtocol(portsToOpen[0].protocol),
-                        vpc_id: appendToTraversal(vpcRef, 'id'),
+                        vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                         target_type: 'ip',
                     })
                 )
@@ -538,7 +427,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                             name: appendToTemplate(namePrefix, [`${bag.Name}-http-lb-tg`]),
                             port: 80,
                             protocol: 'HTTP',
-                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                             target_type: 'ip',
                         })
                     )
@@ -547,12 +436,15 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     // we map either 80 or 443 on the load balancer to 443 on the container
                     // because if https is not enabled on the load balancer then we dont want to map 443 on the load balancer to 443 on the container
                     if(enableHttps) {
+                        const dotDomain = compileBlockParam(dotLoadBalancer, 'domain')
+                        const { certArn, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_task_${bag.Name}`, cloudData, cloudResource)
                         databags.push(
+                            ...domainResources,
                             cloudResource('aws_lb_listener', `aws_fargate_task_${bag.Name}_https_lb_listener`, {
                                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                                 port: 443,
                                 protocol: 'HTTPS',
-                                certificate_arn: TODO,
+                                certificate_arn: certArn,
                                 default_action: asBlock([{
                                     type: 'forward',
                                     target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_https_lb_listener_target.arn`)
@@ -577,7 +469,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                             name: appendToTemplate(namePrefix, [`${bag.Name}-https-lb-tg`]),
                             port: 443,
                             protocol: 'HTTPS',
-                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                             target_type: 'ip',
                         })
                     )
@@ -616,7 +508,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                             name: appendToTemplate(namePrefix, [`${bag.Name}-net${obj.port}-lb-tg`]),
                             port: obj.port,
                             protocol: 'TCP',
-                            vpc_id: appendToTraversal(vpcRef, 'id'),
+                            vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                             target_type: 'ip',
                         })
                     ])
@@ -664,6 +556,7 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         cloudResource('aws_ecs_cluster', `${bag.Name}_fargate_cluster`, {
             name: appendToTemplate(namePrefix, [`${bag.Name}-cluster`]),
         }),
+        cloudResource('aws_ecs_service', `${bag.Name}_fargate_service`, ecsService),
         cloudResource('aws_cloudwatch_log_group', `${bag.Name}_fargate_task_logs`, {
             name: appendToTemplate(asSyntax('/ecs/'), [namePrefix, bag.Name]),
             retention_in_days: block.logs_retention_days || 30,
@@ -710,11 +603,11 @@ function awsFargateIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 ]]
             )
         }),
-        cloudResource('aws_ecs_service', `${bag.Name}_fargate_service`, ecsService)
     )
-
-    return databags
+    return { databags, imports }
 }
 
 
-exportDatabags(iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateIterator).flat())
+const g = iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateIterator).flat()
+exportDatabags(g.map(x => x.databags).flat())
+exportDatabags(importComponents(container, g.map(x => x.imports).flat()))

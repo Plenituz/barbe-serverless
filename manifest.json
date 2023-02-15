@@ -17,6 +17,7 @@
         "barbe-serverless/state_store.js:v0.2.2",
         "barbe-serverless/terraform_passthrough.js:v0.2.2",
         "barbe-serverless/default_terraform.js:v0.2.2",
-        "barbe-serverless/git_clone.js:v0.2.2"
+        "barbe-serverless/git_clone.js:v0.2.2",
+        "barbe-serverless/aws_fargate_service.js:v0.2.2"
     ]
 }

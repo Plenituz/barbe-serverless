@@ -124,6 +124,7 @@ export function compileBlockParam(blockVal: DatabagObjVal, blockName: string): D
     return asVal(mergeTokens((blockVal[blockName] || asSyntax([])).ArrayConst || []))
 }
 
+export type PreConfFactory = (type: string, name: string, value: any) => Databag
 //pre configured cloud resource factory, handles cloud resource id/dir and provider setting based on region parameter
 export function preConfCloudResourceFactory(blockVal: DatabagObjVal, kind: string, preconf?: any, bagPreconf?: any) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : undefined
