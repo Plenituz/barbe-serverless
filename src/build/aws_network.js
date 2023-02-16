@@ -1,12 +1,6 @@
 (() => {
   // barbe-sls-lib/consts.ts
-  var AWS_S3 = "aws_s3";
-  var AWS_FUNCTION = "aws_function";
-  var AWS_DYNAMODB = "aws_dynamodb";
-  var AWS_KINESIS_STREAM = "aws_kinesis_stream";
-  var AWS_IAM_LAMBDA_ROLE = "aws_iam_lambda_role";
-  var AWS_FARGATE_TASK = "aws_fargate_task";
-  var AWS_FARGATE_SERVICE = "aws_fargate_service";
+  var AWS_NETWORK = "aws_network";
   var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
   var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
@@ -119,9 +113,6 @@
         throw new Error(`cannot turn token type '${token.Type}' into a value`);
     }
   }
-  function asValArrayConst(token) {
-    return asVal(token).map((item) => asVal(item));
-  }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
       return token;
@@ -158,17 +149,31 @@
       }))
     };
   }
+  function asBinaryOp(left, op, right) {
+    return {
+      Type: "binary_op",
+      LeftHandSide: asSyntax(left),
+      Operator: op,
+      RightHandSide: asSyntax(right)
+    };
+  }
+  function appendToTraversal(source, toAdd) {
+    return {
+      Type: source.Type,
+      Traversal: [
+        ...source.Traversal || [],
+        ...toAdd.split(".").map((part) => ({
+          Type: "attr",
+          Name: part
+        }))
+      ]
+    };
+  }
   function asFuncCall(funcName, args) {
     return {
       Type: "function_call",
       FunctionName: funcName,
       FunctionArgs: args.map(asSyntax)
-    };
-  }
-  function asTemplate(arr) {
-    return {
-      Type: "template",
-      Parts: arr.map(asSyntax)
     };
   }
   function appendToTemplate(source, toAdd) {
@@ -184,6 +189,36 @@
     return {
       Type: "template",
       Parts: parts
+    };
+  }
+  function asBlock(arr) {
+    return {
+      Type: "array_const",
+      Meta: { IsBlock: true },
+      ArrayConst: arr.map((obj) => {
+        if (typeof obj === "function") {
+          const { block, labels } = obj();
+          return {
+            Type: "object_const",
+            Meta: {
+              IsBlock: true,
+              Labels: labels
+            },
+            ObjectConst: Object.keys(block).map((key) => ({
+              Key: key,
+              Value: asSyntax(block[key])
+            }))
+          };
+        }
+        return {
+          Type: "object_const",
+          Meta: { IsBlock: true },
+          ObjectConst: Object.keys(obj).map((key) => ({
+            Key: key,
+            Value: asSyntax(obj[key])
+          }))
+        };
+      })
     };
   }
   function iterateAllBlocks(container2, func) {
@@ -271,17 +306,6 @@
   }
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
-  }
-  function uniq(arr, key) {
-    const seen = /* @__PURE__ */ new Set();
-    return arr.filter((item) => {
-      const val = key ? key(item) : item;
-      if (seen.has(val)) {
-        return false;
-      }
-      seen.add(val);
-      return true;
-    });
   }
 
   // barbe-sls-lib/lib.ts
@@ -377,245 +401,185 @@
       });
     };
   }
+  function preConfTraversalTransform(blockVal) {
+    return (name, transforms) => ({
+      Name: `${blockVal.Name}_${name}`,
+      Type: "traversal_transform",
+      Value: transforms
+    });
+  }
 
-  // aws_iam.ts
+  // aws_network.ts
   var container = readDatabagContainer();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function lambdaRoleStatement(label, namePrefix) {
-    let statements = [
-      {
-        Action: [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream"
-        ],
-        Effect: "Allow",
-        Resource: asTemplate([
-          "arn:",
-          asTraversal("data.aws_partition.current.partition"),
-          ":logs:*:",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":log-group:/aws/lambda/",
-          ...(() => {
-            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
-              return ["*:*"];
-            }
-            return [
-              ...namePrefix.Parts,
-              "*:*"
-            ];
-          })()
-        ])
-      },
-      {
-        Action: "logs:PutLogEvents",
-        Effect: "Allow",
-        Resource: asTemplate([
-          "arn:",
-          asTraversal("data.aws_partition.current.partition"),
-          ":logs:*:",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":log-group:/aws/lambda/",
-          ...(() => {
-            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
-              return ["*:*:*"];
-            }
-            return [
-              ...namePrefix.Parts,
-              "*:*:*"
-            ];
-          })()
-        ])
-      }
-    ];
-    if (AWS_DYNAMODB in container) {
-      statements.push({
-        Action: "dynamodb:*",
-        Effect: "Allow",
-        Resource: Object.keys(container[AWS_DYNAMODB]).map((dynamodbName) => asTemplate([
-          "arn:",
-          asTraversal("data.aws_partition.current.partition"),
-          ":dynamodb:*:",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":table/",
-          asTraversal(`aws_dynamodb_table.${dynamodbName}_aws_dynamodb.name`),
-          "*"
-        ]))
-      });
-    }
-    if (AWS_KINESIS_STREAM in container) {
-      statements.push({
-        Action: "kinesis:*",
-        Effect: "Allow",
-        Resource: Object.keys(container[AWS_KINESIS_STREAM]).map((kinesisName) => asTraversal(`aws_kinesis_stream.${kinesisName}_aws_kinesis_stream.arn`))
-      });
-    }
-    if (AWS_S3 in container) {
-      statements.push({
-        Action: "s3:*",
-        Effect: "Allow",
-        Resource: Object.keys(container[AWS_S3]).flatMap((s3Name) => [
-          asTraversal(`aws_s3_bucket.${s3Name}_s3.arn`),
-          asTemplate([
-            asTraversal(`aws_s3_bucket.${s3Name}_s3.arn`),
-            "*"
-          ])
-        ])
-      });
-    }
-    if (AWS_FARGATE_TASK in container) {
-      statements.push(
-        {
-          Action: "ecs:RunTask",
-          Effect: "Allow",
-          Resource: Object.keys(container[AWS_FARGATE_TASK]).map((fargateName) => asTemplate([
-            "arn:",
-            asTraversal("data.aws_partition.current.partition"),
-            ":ecs:*:",
-            asTraversal("data.aws_caller_identity.current.account_id"),
-            ":task-definition/",
-            appendToTemplate(namePrefix, [fargateName]),
-            "*"
-          ]))
-        },
-        {
-          Action: "iam:PassRole",
-          Effect: "Allow",
-          //TODO this will cause duplicate entries if 2 tasks are defined and they both have the same
-          //execution role (which is the case most of the time since we use the account's default by default)
-          //this doesnt prevent the template from working but it will cause duplicate entries in the policy
-          Resource: [
-            ...Object.keys(container[AWS_FARGATE_TASK]).map((fargateName) => asTraversal(`local.__aws_fargate_task_${fargateName}_task_execution_role_arn`)),
-            asTemplate([
-              "arn:",
-              asTraversal("data.aws_partition.current.partition"),
-              ":iam::",
-              asTraversal("data.aws_caller_identity.current.account_id"),
-              ":role/",
-              namePrefix,
-              "*"
-            ])
-          ]
-        }
-      );
-    }
-    if (AWS_IAM_LAMBDA_ROLE in container && label in container[AWS_IAM_LAMBDA_ROLE]) {
-      const val = asVal(container[AWS_IAM_LAMBDA_ROLE][label][0].Value);
-      if (val.statements) {
-        statements.push(...asVal(val.statements));
-      }
-    }
-    return statements;
-  }
-  function defineRole(params) {
-    const { cloudResourceFactory, label, namePrefix, assumableBy } = params;
-    const cloudResource = cloudResourceFactory("resource");
-    const cloudData = cloudResourceFactory("data");
-    let principalService = [];
-    if (assumableBy) {
-      principalService.push(...asValArrayConst(assumableBy));
-    }
-    if (AWS_FUNCTION in container) {
-      principalService.push("lambda.amazonaws.com");
-    }
-    if (AWS_FARGATE_TASK in container) {
-      principalService.push("ecs-tasks.amazonaws.com");
-    }
-    if (AWS_FARGATE_SERVICE in container) {
-      principalService.push("ecs-tasks.amazonaws.com");
-    }
-    if (principalService.length === 0) {
-      principalService.push("lambda.amazonaws.com");
-    }
-    return [
-      {
-        Type: "traversal_transform",
-        Name: `${label}_iam_traversal_transform`,
-        Value: {
-          [`aws_iam_lambda_role.${label}`]: `aws_iam_role.${label}_lambda_role`
-        }
-      },
-      //these are duplicated if aws_base is included, but useful if the component is imported standalone
-      cloudData("aws_caller_identity", "current", {}),
-      cloudData("aws_partition", "current", {}),
-      cloudResource("aws_iam_role", `${label}_lambda_role`, {
-        name: appendToTemplate(namePrefix, [`${label}-role`]),
-        assume_role_policy: JSON.stringify({
-          Version: "2012-10-17",
-          Statement: [
-            {
-              Action: "sts:AssumeRole",
-              Effect: "Allow",
-              Sid: "",
-              Principal: {
-                Service: principalService
-              }
-            }
-          ]
-        })
-      }),
-      cloudResource("aws_iam_policy", `${label}_lambda_role_policy`, {
-        name: appendToTemplate(namePrefix, [`${label}-role-policy`]),
-        description: "",
-        policy: asFuncCall("jsonencode", [{
-          Version: "2012-10-17",
-          Statement: lambdaRoleStatement(label, namePrefix)
-        }])
-      }),
-      cloudResource("aws_iam_role_policy_attachment", `${label}_lambda_role_policy_attachment`, {
-        role: asTraversal(`aws_iam_role.${label}_lambda_role.name`),
-        policy_arn: asTraversal(`aws_iam_policy.${label}_lambda_role_policy.arn`)
-      })
-    ];
-  }
-  function awsIamLambdaRoleIterator(bag) {
+  function awsNetworkIterator(bag) {
     if (!bag.Value) {
       return [];
     }
-    if (!bag.Name || bag.Name.length === 0) {
-      return [];
-    }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResourceFactory = (kind) => preConfCloudResourceFactory(block, kind);
-    return defineRole({
-      cloudResourceFactory,
-      label: bag.Name,
-      namePrefix,
-      assumableBy: block.assumable_by
-    });
+    const cloudResource = preConfCloudResourceFactory(block, "resource");
+    const cloudData = preConfCloudResourceFactory(block, "data");
+    const traversalTransform = preConfTraversalTransform(bag);
+    const avZoneDataName = asStr(block.region || "current");
+    const makeNatGateway = asVal(block.make_nat_gateway || asSyntax(false));
+    const oneNatPerAZ = asVal(block.one_nat_per_az || asSyntax(false));
+    const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false));
+    const publicSubnetCidrOffset = asVal(block.public_subnets_cidr_offset || asSyntax(0));
+    const privateSubnetCidrOffset = asVal(block.private_subnets_cidr_offset || asSyntax(100));
+    let databags = [];
+    let vpcRef;
+    if (useDefaultVpc) {
+      vpcRef = asTraversal("data.aws_vpc.default.id");
+      databags.push(
+        cloudData("aws_vpc", "default", {
+          default: true
+        })
+      );
+    } else if (block.vpc_id) {
+      vpcRef = asTraversal(`data.aws_vpc.aws_network_${bag.Name}_imported_vpc`);
+      databags.push(
+        cloudData("aws_vpc", `aws_network_${bag.Name}_imported_vpc`, {
+          id: block.vpc_id
+        })
+      );
+    } else {
+      vpcRef = asTraversal(`aws_vpc.aws_network_${bag.Name}_vpc`);
+      databags.push(
+        cloudResource("aws_vpc", `aws_network_${bag.Name}_vpc`, {
+          tags: {
+            Name: appendToTemplate(namePrefix, [`${bag.Name}-vpc`])
+          },
+          cidr_block: block.cidr_block || "10.0.0.0/16",
+          enable_dns_hostnames: block.enable_dns_hostnames || true,
+          enable_dns_support: block.enable_dns_support
+        })
+      );
+    }
+    if (makeNatGateway) {
+      if (oneNatPerAZ) {
+        databags.push(
+          cloudResource("aws_eip", `aws_network_${bag.Name}_nat_gateway_eips`, {
+            count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+            vpc: true,
+            tags: {
+              Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway-eip-`, asTraversal("count.index")])
+            }
+          }),
+          cloudResource("aws_nat_gateway", `aws_network_${bag.Name}_nat_gateways`, {
+            count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+            allocation_id: asTraversal(`aws_eip.aws_network_${bag.Name}_nat_gateway_eips[count.index].id`),
+            subnet_id: asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets[count.index].id`),
+            tags: {
+              Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway-`, asTraversal("count.index")])
+            }
+          }),
+          cloudResource("aws_route", `aws_network_${bag.Name}_nat_gateway_routes`, {
+            count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+            route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`),
+            destination_cidr_block: "0.0.0.0/0",
+            nat_gateway_id: asTraversal(`aws_nat_gateway.aws_network_${bag.Name}_nat_gateways[count.index].id`)
+          })
+        );
+      } else {
+        databags.push(
+          cloudResource("aws_eip", `aws_network_${bag.Name}_nat_gateway_eip`, {
+            vpc: true,
+            tags: {
+              Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway-eip`])
+            }
+          }),
+          cloudResource("aws_nat_gateway", `aws_network_${bag.Name}_nat_gateway`, {
+            allocation_id: asTraversal(`aws_eip.aws_network_${bag.Name}_nat_gateway_eip.id`),
+            subnet_id: asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets[0].id`),
+            tags: {
+              Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway`])
+            }
+          }),
+          cloudResource("aws_route", `aws_network_${bag.Name}_nat_gateway_route`, {
+            route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`),
+            destination_cidr_block: "0.0.0.0/0",
+            nat_gateway_id: asTraversal(`aws_nat_gateway.aws_network_${bag.Name}_nat_gateway.id`)
+          })
+        );
+      }
+    }
+    databags.push(
+      traversalTransform("aws_network_${bag.Name}_traversal_transforms", {
+        [`aws_network.${bag.Name}.vpc`]: asStr(vpcRef),
+        [`aws_network.${bag.Name}.public_subnets`]: `aws_subnet.aws_network_${bag.Name}_public_subnets`,
+        [`aws_network.${bag.Name}.private_subnets`]: `aws_subnet.aws_network_${bag.Name}_private_subnets`
+      }),
+      //public subnets
+      cloudResource("aws_subnet", `aws_network_${bag.Name}_public_subnets`, {
+        count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+        vpc_id: appendToTraversal(vpcRef, "id"),
+        availability_zone: asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[count.index]`),
+        cidr_block: asFuncCall("cidrsubnet", [
+          appendToTraversal(vpcRef, "cidr_block"),
+          8,
+          asBinaryOp(asTraversal(`count.index`), "+", 1 + publicSubnetCidrOffset)
+        ]),
+        map_public_ip_on_launch: true,
+        tags: {
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-public-subnet-`, asTraversal("count.index")])
+        }
+      }),
+      cloudResource("aws_route_table", `aws_network_${bag.Name}_public_subnets_route_table`, {
+        vpc_id: appendToTraversal(vpcRef, "id"),
+        route: asBlock([{
+          cidr_block: "0.0.0.0/0",
+          gateway_id: asTraversal(`aws_internet_gateway.aws_network_${bag.Name}_igw.id`)
+        }]),
+        tags: {
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`])
+        }
+      }),
+      cloudResource("aws_route_table_association", `aws_network_${bag.Name}_public_subnets_route_table_association`, {
+        count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+        subnet_id: asFuncCall("element", [
+          asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets.*.id`),
+          asTraversal("count.index")
+        ]),
+        route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_public_subnets_route_table.id`)
+      }),
+      cloudResource("aws_internet_gateway", `aws_network_${bag.Name}_igw`, {
+        vpc_id: appendToTraversal(vpcRef, "id"),
+        tags: {
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-igw`])
+        }
+      }),
+      //private subnets (nat goes into the public subnet, but is a the root of the private subnet)
+      cloudResource("aws_subnet", `aws_network_${bag.Name}_private_subnets`, {
+        count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+        vpc_id: appendToTraversal(vpcRef, "id"),
+        availability_zone: asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[count.index]`),
+        cidr_block: asFuncCall("cidrsubnet", [
+          appendToTraversal(vpcRef, "cidr_block"),
+          8,
+          asBinaryOp(asTraversal(`count.index`), "+", 101 + privateSubnetCidrOffset)
+        ]),
+        map_public_ip_on_launch: true,
+        tags: {
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-private-subnet-`, asTraversal("count.index")])
+        }
+      }),
+      cloudResource("aws_route_table", `aws_network_${bag.Name}_private_subnets_route_table`, {
+        //routes for this table are created in the nat gateway section
+        vpc_id: appendToTraversal(vpcRef, "id"),
+        tags: {
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`])
+        }
+      }),
+      cloudResource("aws_route_table_association", `aws_network_${bag.Name}_public_subnets_route_table_association`, {
+        count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
+        subnet_id: asFuncCall("element", [
+          asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets.*.id`),
+          asTraversal("count.index")
+        ]),
+        route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_public_subnets_route_table.id`)
+      })
+    );
+    return databags;
   }
-  var globalNamePrefix = compileNamePrefix(container, null);
-  var allDirectories = [
-    ...iterateBlocks(container, AWS_FUNCTION, (bag) => {
-      const [block, _] = applyDefaults(container, bag.Value);
-      return block.cloudresource_dir || ".";
-    }),
-    ...iterateBlocks(container, AWS_FARGATE_TASK, (bag) => {
-      const [block, _] = applyDefaults(container, bag.Value);
-      return block.cloudresource_dir || ".";
-    }),
-    ...iterateBlocks(container, AWS_FARGATE_SERVICE, (bag) => {
-      const [block, _] = applyDefaults(container, bag.Value);
-      return block.cloudresource_dir || ".";
-    })
-  ].filter((dir) => dir);
-  allDirectories = uniq(allDirectories, asStr);
-  var defaultRoles = allDirectories.map((dir) => {
-    const dirStr = asStr(dir);
-    const cloudResourceFactory = (kind) => (type, name, value) => cloudResourceRaw({
-      kind,
-      dir: dirStr === "." ? void 0 : dirStr,
-      type,
-      name,
-      value
-    });
-    return defineRole({
-      cloudResourceFactory,
-      label: "default",
-      namePrefix: dirStr === "." ? globalNamePrefix : appendToTemplate(globalNamePrefix, [`${dirStr}-`])
-    });
-  }).flat();
-  exportDatabags([
-    ...defaultRoles,
-    ...iterateBlocks(container, AWS_IAM_LAMBDA_ROLE, awsIamLambdaRoleIterator).flat()
-  ]);
+  exportDatabags(iterateBlocks(container, AWS_NETWORK, awsNetworkIterator).flat());
 })();

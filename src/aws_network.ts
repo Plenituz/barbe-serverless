@@ -14,7 +14,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const cloudResource = preConfCloudResourceFactory(block, 'resource')
     const cloudData = preConfCloudResourceFactory(block, 'data')
     const traversalTransform = preConfTraversalTransform(bag)
-    const avZoneDataName = asStr(block.region || 'available')
+    const avZoneDataName = asStr(block.region || 'current')
     const makeNatGateway = asVal(block.make_nat_gateway || asSyntax(false))
     const oneNatPerAZ = asVal(block.one_nat_per_az || asSyntax(false))
     const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false))
@@ -148,9 +148,9 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 asBinaryOp(asTraversal(`count.index`), '+', 1+publicSubnetCidrOffset),
             ]),
             map_public_ip_on_launch: true,
-            tags: asBlock([{
+            tags: {
                 Name: appendToTemplate(namePrefix, [`${bag.Name}-public-subnet-`, asTraversal('count.index')]),
-            }])
+            }
         }),
         cloudResource('aws_route_table', `aws_network_${bag.Name}_public_subnets_route_table`, {
             vpc_id: appendToTraversal(vpcRef, 'id'),
@@ -159,7 +159,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 gateway_id: asTraversal(`aws_internet_gateway.aws_network_${bag.Name}_igw.id`),
             }]),
             tags: {
-                Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable-`, asTraversal('count.index')]),
+                Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`]),
             }
         }),
         cloudResource('aws_route_table_association', `aws_network_${bag.Name}_public_subnets_route_table_association`, {
@@ -188,15 +188,15 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 asBinaryOp(asTraversal(`count.index`), '+', 101+privateSubnetCidrOffset),
             ]),
             map_public_ip_on_launch: true,
-            tags: asBlock([{
+            tags: {
                 Name: appendToTemplate(namePrefix, [`${bag.Name}-private-subnet-`, asTraversal('count.index')]),
-            }])
+            }
         }),
         cloudResource('aws_route_table', `aws_network_${bag.Name}_private_subnets_route_table`, {
             //routes for this table are created in the nat gateway section
             vpc_id: appendToTraversal(vpcRef, 'id'),
             tags: {
-                Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable-`, asTraversal('count.index')]),
+                Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`]),
             }
         }),
         cloudResource('aws_route_table_association', `aws_network_${bag.Name}_public_subnets_route_table_association`, {

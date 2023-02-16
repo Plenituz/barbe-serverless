@@ -2,7 +2,8 @@
   // barbe-sls-lib/consts.ts
   var FOR_EACH = "for_each";
   var BARBE_SLS_VERSION = "v0.2.2";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 
   // barbe-std/rpc.ts
   function isFailure(resp) {
@@ -331,18 +332,20 @@
       const globalDefaults = Object.values(container2.global_default).flatMap((group) => group.map((block2) => block2.Value)).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
       namePrefixes.push(...globalDefaults);
     }
-    let defaultName;
-    const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
-    if (copyFrom) {
-      defaultName = asStr(copyFrom.Value);
-    } else {
-      defaultName = "";
+    let defaultName = "";
+    if (block) {
+      const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
+      if (copyFrom) {
+        defaultName = asStr(copyFrom.Value);
+      }
     }
     if (container2.default && container2.default[defaultName]) {
       const defaults = container2.default[defaultName].map((bag) => bag.Value).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
       namePrefixes.push(...defaults);
     }
-    namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    if (block) {
+      namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    }
     let output = {
       Type: "template",
       Parts: []

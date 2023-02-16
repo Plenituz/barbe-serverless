@@ -334,7 +334,7 @@
     return Array.from(new Set(regionNames));
   }
   function hasToken(container2, tokenFunc) {
-    return findInBlocks(container2, (bag) => {
+    return !!findInBlocks(container2, (bag) => {
       if (!bag.Value) {
         return false;
       }

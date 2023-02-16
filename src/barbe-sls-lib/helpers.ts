@@ -1,7 +1,7 @@
 // this is for functions that are pretty specific to components but could be shared between components
 
 import { guessAwsDnsZoneBasedOnDomainName } from '../../../anyfront/src/anyfront-lib/lib';
-import { accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken, visitTokens, findInBlocks, SugarCoatedDatabag, asTraversal, asSyntax } from '../barbe-std/utils';
+import { accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken, visitTokens, findInBlocks, SugarCoatedDatabag, asTraversal, asSyntax, throwStatement } from '../barbe-std/utils';
 import { PreConfFactory, DatabagObjVal } from './lib';
 
 //collect all the regions referenced as `aws.<region>`
@@ -103,7 +103,7 @@ export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: Synt
     let databags: SugarCoatedDatabag[] = []
     databags.push(
         cloudData('aws_route53_zone', `${resourcePrefix}_zone`, {
-            name: dotDomain.zone || guessAwsDnsZoneBasedOnDomainName(dotDomain.name) || (() => {throw new Error('no \'zone\' given and could not guess based on domain name')})(),
+            name: dotDomain.zone || guessAwsDnsZoneBasedOnDomainName(dotDomain.name) || throwStatement('no \'zone\' given and could not guess based on domain name'),
         }),
         cloudResource('aws_route53_record', `${resourcePrefix}_domain_record`, {
             zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),

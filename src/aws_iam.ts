@@ -1,5 +1,5 @@
-import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3 } from './barbe-sls-lib/consts';
-import { applyDefaults, compileGlobalNamePrefix, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
+import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3, AWS_FARGATE_SERVICE } from './barbe-sls-lib/consts';
+import { applyDefaults, compileGlobalNamePrefix, compileNamePrefix, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
 import { appendToTemplate, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, SyntaxToken, asValArrayConst, asFuncCall, asTraversal, asTemplate, asVal, uniq, asStr, cloudResourceRaw, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
@@ -86,6 +86,7 @@ function lambdaRoleStatement(label: string, namePrefix: SyntaxToken) {
             ])
         })
     }
+    //TODO add AWS_FARGATE_SERVICE
     if (AWS_FARGATE_TASK in container) {
         statements.push(
             {
@@ -149,6 +150,9 @@ function defineRole(params: {
         principalService.push('lambda.amazonaws.com')
     }
     if (AWS_FARGATE_TASK in container) {
+        principalService.push('ecs-tasks.amazonaws.com')
+    }
+    if (AWS_FARGATE_SERVICE in container) {
         principalService.push('ecs-tasks.amazonaws.com')
     }
     if(principalService.length === 0) {
@@ -216,13 +220,17 @@ function awsIamLambdaRoleIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
     })
 }
 
-const globalNamePrefix = compileGlobalNamePrefix(container)
+const globalNamePrefix = compileNamePrefix(container, null)
 let allDirectories = [
     ...iterateBlocks(container, AWS_FUNCTION, (bag) => {
         const [block, _] = applyDefaults(container, bag.Value!);
         return block.cloudresource_dir || '.'
     }),
     ...iterateBlocks(container, AWS_FARGATE_TASK, (bag) => {
+        const [block, _] = applyDefaults(container, bag.Value!);
+        return block.cloudresource_dir || '.'
+    }),
+    ...iterateBlocks(container, AWS_FARGATE_SERVICE, (bag) => {
         const [block, _] = applyDefaults(container, bag.Value!);
         return block.cloudresource_dir || '.'
     })

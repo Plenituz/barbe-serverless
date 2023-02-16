@@ -11,6 +11,36 @@
   }
 
   // barbe-std/utils.ts
+  function iterateAllBlocks(container2, func) {
+    const types = Object.keys(container2);
+    let output = [];
+    for (const type of types) {
+      const blockNames = Object.keys(container2[type]);
+      for (const blockName of blockNames) {
+        for (const block of container2[type][blockName]) {
+          output.push(func(block));
+        }
+      }
+    }
+    return output;
+  }
+  function exportDatabags(bags) {
+    if (!Array.isArray(bags)) {
+      bags = iterateAllBlocks(bags, (bag) => bag);
+    }
+    if (bags.length === 0) {
+      return;
+    }
+    const resp = barbeRpcCall({
+      method: "exportDatabags",
+      params: [{
+        databags: bags
+      }]
+    });
+    if (isFailure(resp)) {
+      throw new Error(resp.error);
+    }
+  }
   function importComponents(container2, components) {
     let barbeImportComponent = [];
     for (const component of components) {
@@ -77,7 +107,8 @@
 
   // barbe-sls-lib/consts.ts
   var BARBE_SLS_VERSION = "v0.2.2";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 
   // default_terraform.ts
   var container = readDatabagContainer();
@@ -108,12 +139,12 @@
       });
       break;
   }
-  importComponents(
+  exportDatabags(importComponents(
     container,
     [{
       url: TERRAFORM_EXECUTE_URL,
       name: "default_terraform",
       input: databags
     }]
-  );
+  ));
 })();

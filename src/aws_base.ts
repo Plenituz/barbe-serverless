@@ -91,5 +91,4 @@ if(hasToken(container, isAwsAvailabilityZones)) {
         type: 'aws_availability_zones'
     }))
 }
-
 exportDatabags(databags)

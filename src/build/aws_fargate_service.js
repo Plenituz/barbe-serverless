@@ -1,5 +1,8 @@
 (() => {
   // barbe-std/rpc.ts
+  function isSuccess(resp) {
+    return resp.result !== void 0;
+  }
   function isFailure(resp) {
     return resp.error !== void 0;
   }
@@ -88,6 +91,21 @@
         };
     }
   }
+  function isSimpleTemplate(token) {
+    if (!token) {
+      return false;
+    }
+    if (typeof token === "string" || token.Type === "literal_value") {
+      return true;
+    }
+    if (token.Type !== "template") {
+      return false;
+    }
+    if (!token.Parts) {
+      return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -144,18 +162,6 @@
         Type: "attr",
         Name: part
       }))
-    };
-  }
-  function appendToTraversal(source, toAdd) {
-    return {
-      Type: source.Type,
-      Traversal: [
-        ...source.Traversal || [],
-        ...toAdd.split(".").map((part) => ({
-          Type: "attr",
-          Name: part
-        }))
-      ]
     };
   }
   function asFuncCall(funcName, args) {
@@ -290,14 +296,77 @@
       throw new Error(resp.error);
     }
   }
+  function applyTransformers(input) {
+    const resp = barbeRpcCall({
+      method: "transformContainer",
+      params: [{
+        databags: input
+      }]
+    });
+    if (isFailure(resp)) {
+      throw new Error(resp.error);
+    }
+    return resp.result;
+  }
+  function importComponents(container2, components) {
+    let barbeImportComponent = [];
+    for (const component of components) {
+      let importComponentInput = {
+        url: component.url,
+        input: {}
+      };
+      if (component.copyFromContainer) {
+        for (const copyFrom of component.copyFromContainer) {
+          if (copyFrom in container2) {
+            importComponentInput.input[copyFrom] = container2[copyFrom];
+          }
+        }
+      }
+      if (component.input) {
+        for (const databag of component.input) {
+          const type = databag.Type;
+          const name = databag.Name;
+          if (!(type in importComponentInput.input)) {
+            importComponentInput.input[type] = {};
+          }
+          if (!(name in importComponentInput.input[type])) {
+            importComponentInput.input[type][name] = [];
+          }
+          importComponentInput.input[type][name].push(databag);
+        }
+      }
+      const id = `${component.name || ""}_${component.url}`;
+      barbeImportComponent.push({
+        Type: "barbe_import_component",
+        Name: id,
+        Value: importComponentInput
+      });
+    }
+    if (barbeImportComponent.length === 0) {
+      return {};
+    }
+    const resp = barbeRpcCall({
+      method: "importComponents",
+      params: [{
+        databags: barbeImportComponent
+      }]
+    });
+    if (isFailure(resp)) {
+      throw new Error(resp.error);
+    }
+    return resp.result;
+  }
+  function statFile(fileName) {
+    return barbeRpcCall({
+      method: "statFile",
+      params: [fileName]
+    });
+  }
+  function throwStatement(message) {
+    throw new Error(message);
+  }
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
-  }
-  function onlyRunForLifecycleSteps(steps) {
-    const step = barbeLifecycleStep();
-    if (!steps.includes(step)) {
-      quit();
-    }
   }
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
@@ -315,11 +384,11 @@
   }
 
   // barbe-sls-lib/consts.ts
-  var AWS_S3 = "aws_s3";
-  var AWS_DYNAMODB = "aws_dynamodb";
   var AWS_FARGATE_SERVICE = "aws_fargate_service";
+  var AWS_NETWORK = "aws_network";
   var BARBE_SLS_VERSION = "v0.2.2";
-  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 
   // barbe-sls-lib/lib.ts
   function compileDefaults(container2, name) {
@@ -356,18 +425,20 @@
       const globalDefaults = Object.values(container2.global_default).flatMap((group) => group.map((block2) => block2.Value)).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
       namePrefixes.push(...globalDefaults);
     }
-    let defaultName;
-    const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
-    if (copyFrom) {
-      defaultName = asStr(copyFrom.Value);
-    } else {
-      defaultName = "";
+    let defaultName = "";
+    if (block) {
+      const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
+      if (copyFrom) {
+        defaultName = asStr(copyFrom.Value);
+      }
     }
     if (container2.default && container2.default[defaultName]) {
       const defaults = container2.default[defaultName].map((bag) => bag.Value).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
       namePrefixes.push(...defaults);
     }
-    namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    if (block) {
+      namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    }
     let output = {
       Type: "template",
       Parts: []
@@ -422,36 +493,153 @@
       Value: transforms
     });
   }
+  var __awsCredsCached = void 0;
+  function getAwsCreds() {
+    if (__awsCredsCached) {
+      return __awsCredsCached;
+    }
+    const transformed = applyTransformers([{
+      Name: "state_store_credentials",
+      Type: "aws_credentials_request",
+      Value: {}
+    }]);
+    const creds = transformed.aws_credentials?.state_store_credentials[0]?.Value;
+    if (!creds) {
+      return void 0;
+    }
+    const credsObj = asVal(creds);
+    __awsCredsCached = {
+      access_key_id: asStr(credsObj.access_key_id),
+      secret_access_key: asStr(credsObj.secret_access_key),
+      session_token: asStr(credsObj.session_token)
+    };
+    return __awsCredsCached;
+  }
+
+  // ../../anyfront/src/anyfront-lib/lib.ts
+  function guessAwsDnsZoneBasedOnDomainName(domainName) {
+    if (!domainName) {
+      return null;
+    }
+    if (!isSimpleTemplate(domainName)) {
+      return null;
+    }
+    const parts = asStr(domainName).split(".");
+    if (parts.length === 2) {
+      return `${parts[0]}.${parts[1]}`;
+    }
+    if (parts.length < 3) {
+      return null;
+    }
+    return `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+  }
+
+  // barbe-sls-lib/helpers.ts
+  function domainBlockResources(dotDomain, domainValue, resourcePrefix, cloudData, cloudResource) {
+    if (!dotDomain.name) {
+      throw new Error("no domain name given");
+    }
+    let certArn;
+    const acmCertificateResources = (domain) => {
+      return [
+        cloudResource("aws_acm_certificate", `${resourcePrefix}_cert`, {
+          domain_name: domain,
+          validation_method: "DNS"
+        }),
+        cloudResource("aws_route53_record", `${resourcePrefix}_validation_record`, {
+          for_each: {
+            Type: "for",
+            ForKeyVar: "dvo",
+            ForCollExpr: asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.domain_validation_options`),
+            ForKeyExpr: asTraversal("dvo.domain_name"),
+            ForValExpr: asSyntax({
+              name: asTraversal("dvo.resource_record_name"),
+              record: asTraversal("dvo.resource_record_value"),
+              type: asTraversal("dvo.resource_record_type")
+            })
+          },
+          allow_overwrite: true,
+          name: asTraversal("each.value.name"),
+          records: [
+            asTraversal("each.value.record")
+          ],
+          ttl: 60,
+          type: asTraversal("each.value.type"),
+          zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`)
+        }),
+        cloudResource("aws_acm_certificate_validation", `${resourcePrefix}_validation`, {
+          certificate_arn: asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`),
+          validation_record_fqdns: {
+            Type: "for",
+            ForValVar: "record",
+            ForCollExpr: asTraversal(`aws_route53_record.${resourcePrefix}_validation_record`),
+            ForValExpr: asTraversal("record.fqdn")
+          }
+        })
+      ];
+    };
+    let databags = [];
+    databags.push(
+      cloudData("aws_route53_zone", `${resourcePrefix}_zone`, {
+        name: dotDomain.zone || guessAwsDnsZoneBasedOnDomainName(dotDomain.name) || throwStatement("no 'zone' given and could not guess based on domain name")
+      }),
+      cloudResource("aws_route53_record", `${resourcePrefix}_domain_record`, {
+        zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+        name: dotDomain.name,
+        type: "CNAME",
+        ttl: 300,
+        records: [domainValue]
+      })
+    );
+    if (!dotDomain.certificate_arn) {
+      if (dotDomain.existing_certificate_domain) {
+        certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`);
+        databags.push(
+          cloudData("aws_acm_certificate", `${resourcePrefix}_imported_certificate`, {
+            domain: dotDomain.existing_certificate_domain,
+            types: ["AMAZON_ISSUED"],
+            most_recent: true
+          })
+        );
+      } else if (dotDomain.certificate_domain_to_create) {
+        certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
+        databags.push(...acmCertificateResources(dotDomain.certificate_domain_to_create));
+      } else {
+        certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
+        databags.push(...acmCertificateResources(dotDomain.name));
+      }
+    } else {
+      certArn = dotDomain.certificate_arn;
+    }
+    return { certArn, databags };
+  }
 
   // aws_fargate_service.ts
   var container = readDatabagContainer();
-  onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function awsFargateIterator(bag) {
+  function awsFargateServiceGenerateIterator(bag) {
     if (!bag.Value) {
-      return [];
+      return { databags: [], imports: [] };
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
     const cloudResourceId = block.cloudresource_id ? asStr(block.cloudresource_id) : void 0;
     const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : void 0;
     const cloudResource = preConfCloudResourceFactory(block, "resource");
     const cloudData = preConfCloudResourceFactory(block, "data");
+    const cloudOutput = preConfCloudResourceFactory(block, "output");
     const traversalTransform = preConfTraversalTransform(bag);
     const dotEnvironment = compileBlockParam(block, "environment");
     const dotAutoScaling = compileBlockParam(block, "auto_scaling");
     const dotContainerImage = compileBlockParam(block, "container_image");
     const dotEcrRepository = compileBlockParam(block, "ecr_repository");
-    const dotVpc = compileBlockParam(block, "ecr_repository");
+    const dotNetwork = compileBlockParam(block, "network");
     const dotLoadBalancer = compileBlockParam(block, "load_balancer");
-    const dotSubnets = asValArrayConst(block.subnets || asSyntax([{
-      /*this makes a default subnet if none defined*/
-    }]));
     const cpu = block.cpu || 256;
     const memory = block.memory || 512;
     const regionDataName = asStr(block.region || "current");
-    const avZoneDataName = asStr(block.region || "available");
-    const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false));
     const portMapping = asValArrayConst(block.port_mapping || asSyntax([]));
     const mappedPorts = asVal(block.mapped_ports || asSyntax([]));
+    const hasProvidedImage = !!(block.image || dotContainerImage.image);
+    const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
     const portsToOpen = uniq([
       ...portMapping.map((portMapping2) => ({
         port: asStr(portMapping2.host_port || portMapping2.container_port),
@@ -462,69 +650,36 @@
         protocol: "tcp"
       }))
     ], (i) => i.port + i.protocol);
+    if (portsToOpen.length === 0 && block.load_balancer) {
+      portsToOpen.push(
+        {
+          port: "80",
+          protocol: "tcp"
+        },
+        {
+          port: "443",
+          protocol: "tcp"
+        }
+      );
+    }
     let executionRole;
-    let repositoryUrl;
+    let imageUrl;
     let securityGroupId;
-    let vpcRef;
-    let subnetIds;
-    let currentCidrOffset = 0;
-    const makeSubnets = (dotSubnet, nameSuffix, index) => {
-      const makeNatGateway = asVal(dotSubnet.make_nat_gateway || asSyntax(false));
-      const kind = asStr(dotSubnet.kind || "public");
-      let localDatabags = [
-        // TODO create 1 subnet per AZ
-        cloudResource("aws_subnet", `aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}`, {
-          vpc_id: appendToTraversal(vpcRef, "id"),
-          availability_zone: asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`),
-          cidr_block: dotSubnet.cidr_block || asFuncCall("cidrsubnet", [
-            appendToTraversal(vpcRef, "cidr_block"),
-            4,
-            index + 1 + currentCidrOffset++
-          ])
-        }),
-        cloudResource("aws_route_table", `aws_fargate_task_${bag.Name}_subnet_${index}_route_table${nameSuffix}`, {
-          vpc_id: appendToTraversal(vpcRef, "id"),
-          route: asBlock([{
-            cidr_block: "0.0.0.0/0",
-            gateway_id: kind === "public" ? asTraversal(`aws_internet_gateway.aws_fargate_task_${bag.Name}_subnet_${index}_igw${nameSuffix}.id`) : null,
-            nat_gateway_id: kind === "private" && makeNatGateway ? asTraversal(`aws_nat_gateway.aws_fargate_task_${bag.Name}_subnet_${index}_nat_gateway${nameSuffix}.id`) : null
-          }]),
-          tags: {
-            Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, "-rt"]) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-rt${nameSuffix}`])
-          }
-        }),
-        cloudResource("aws_route_table_association", `aws_fargate_task_${bag.Name}_subnet_${index}_route_table_association${nameSuffix}`, {
-          subnet_id: asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}.id`),
-          route_table_id: asTraversal(`aws_route_table.aws_fargate_task_${bag.Name}_subnet_${index}_route_table${nameSuffix}.id`)
-        })
-      ];
-      if (kind === "private" && makeNatGateway) {
-        localDatabags.push(
-          cloudResource("aws_eip", `aws_fargate_task_${bag.Name}_subnet_${index}_nat_eip${nameSuffix}`, {
-            vpc: true
-          }),
-          cloudResource("aws_nat_gateway", `aws_fargate_task_${bag.Name}_subnet_${index}_nat_gateway${nameSuffix}`, {
-            allocation_id: asTraversal(`aws_eip.aws_fargate_task_${bag.Name}_subnet_${index}_nat_eip${nameSuffix}.id`),
-            subnet_id: asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${index}${nameSuffix}.id`),
-            tags: {
-              Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, "-nat"]) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-nat${nameSuffix}`])
-            }
-          })
-        );
-      }
-      if (kind === "public") {
-        localDatabags.push(
-          cloudResource("aws_internet_gateway", `aws_fargate_task_${bag.Name}_subnet_${index}_igw${nameSuffix}`, {
-            vpc_id: appendToTraversal(vpcRef, "id"),
-            tags: {
-              Name: dotSubnet.name ? appendToTemplate(namePrefix, [dotSubnet.name, "-igw"]) : appendToTemplate(namePrefix, [`${bag.Name}-subnet-${index}-igw${nameSuffix}`])
-            }
-          })
-        );
-      }
-      return localDatabags;
-    };
     let databags = [];
+    let imports = [{
+      url: AWS_NETWORK_URL,
+      input: [{
+        Type: AWS_NETWORK,
+        Name: `aws_fargate_service_${bag.Name}`,
+        Value: {
+          use_default_vpc: dotNetwork.use_default_vpc,
+          vpc_id: dotNetwork.vpc_id,
+          cidr_block: dotNetwork.cidr_block,
+          make_nat_gateway: dotNetwork.make_nat_gateway,
+          one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az
+        }
+      }]
+    }];
     if (block.execution_role_arn) {
       executionRole = block.execution_role_arn;
     } else {
@@ -535,13 +690,19 @@
         })
       );
     }
-    if (block.repository_url) {
-      repositoryUrl = block.repository_url;
+    if (hasProvidedImage && !shouldCopyProvidedImage) {
+      imageUrl = block.image || dotContainerImage.image;
+    } else if (block.repository_url) {
+      imageUrl = block.repository_url;
     } else {
-      repositoryUrl = asTraversal(`aws_ecr_repository.aws_fargate_task_${bag.Name}_ecr_repository.repository_url}`);
+      imageUrl = asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`);
       databags.push(
-        cloudResource("aws_ecr_repository", `aws_fargate_task_${bag.Name}_ecr_repository`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-ecr`])
+        cloudResource("aws_ecr_repository", `aws_fargate_service_${bag.Name}_ecr_repository`, {
+          name: appendToTemplate(namePrefix, [`${bag.Name}-fs-ecr`]),
+          force_delete: true
+        }),
+        cloudOutput("", `aws_fargate_service_${bag.Name}_ecr_repository`, {
+          value: asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`)
         })
       );
       const dontExpireImages = asVal(dotEcrRepository.dont_expire_images || asSyntax(false));
@@ -582,82 +743,48 @@
           }]);
         }
         databags.push(
-          cloudResource("aws_ecr_lifecycle_policy", `aws_fargate_task_${bag.Name}_ecr_policy`, {
-            repository: asTraversal(`aws_ecr_repository.aws_fargate_task_${bag.Name}_ecr_repository.name`),
+          cloudResource("aws_ecr_lifecycle_policy", `aws_fargate_service_${bag.Name}_ecr_policy`, {
+            repository: asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.name`),
             policy
           })
         );
       }
     }
-    if (useDefaultVpc) {
-      vpcRef = asTraversal("data.aws_vpc.default.id");
-      databags.push(
-        cloudData("aws_vpc", "default", {
-          default: true
-        })
-      );
-    } else if (block.vpc_id) {
-      vpcRef = asTraversal(`data.aws_vpc.aws_fargate_task_${bag.Name}_imported_vpc`);
-      databags.push(
-        cloudData("aws_vpc", `aws_fargate_task_${bag.Name}_imported_vpc`, {
-          id: block.vpc_id
-        })
-      );
-    } else {
-      vpcRef = asTraversal(`aws_vpc.aws_fargate_task_${bag.Name}_vpc`);
-      databags.push(
-        cloudResource("aws_vpc", `aws_fargate_task_${bag.Name}_vpc`, {
-          tags: {
-            Name: dotVpc.name || appendToTemplate(namePrefix, [`${bag.Name}-vpc`])
-          },
-          cidr_block: dotVpc.cidr_block || "10.0.0.0/16",
-          enable_dns_hostnames: true
-        })
-      );
-    }
     if (block.security_group_id) {
       securityGroupId = block.security_group_id;
     } else {
-      securityGroupId = asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`);
+      securityGroupId = asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`);
       databags.push(
-        cloudResource("aws_security_group", `aws_fargate_task_${bag.Name}_secgr`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
-          vpc_id: appendToTraversal(vpcRef, "id")
+        cloudResource("aws_security_group", `aws_fargate_service_${bag.Name}_secgr`, {
+          name: appendToTemplate(namePrefix, [`${bag.Name}-fs-sg`]),
+          vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`)
         }),
         //allow all traffic from elements in the same security group
-        cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_self_secgr_ingress`, {
+        cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_self_secgr_ingress`, {
           type: "ingress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`),
           from_port: 0,
           to_port: 65535,
           protocol: -1,
-          source_security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`)
+          source_security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`)
         }),
-        ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.port}_secgr_ingress`, {
+        ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.port}_secgr_ingress`, {
           type: "ingress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`),
           from_port: parseInt(obj.port),
           to_port: parseInt(obj.port),
           protocol: obj.protocol,
           cidr_blocks: ["0.0.0.0/0"]
         })),
         //allow all outbound traffic
-        cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_secgr_egress`, {
+        cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_secgr_egress`, {
           type: "egress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`),
           from_port: 0,
           to_port: 65535,
           protocol: -1,
           cidr_blocks: ["0.0.0.0/0"]
         })
-      );
-    }
-    if (block.subnet_ids) {
-      subnetIds = block.subnet_ids;
-    } else {
-      subnetIds = asSyntax(dotSubnets.map((_, i) => asTraversal(`aws_subnet.aws_fargate_task_${bag.Name}_subnet_${i}.id`)));
-      databags.push(
-        ...dotSubnets.flatMap((dotSubnet, i) => makeSubnets(dotSubnet, "", i))
       );
     }
     if (block.auto_scaling) {
@@ -689,7 +816,7 @@
           service_namespace: "ecs"
         }),
         cloudResource("aws_appautoscaling_policy", `${bag.Name}_fargate_scaling_policy`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-fargate-scaling-policy`]),
+          name: appendToTemplate(namePrefix, [`${bag.Name}-fs-scaling-policy`]),
           policy_type: "TargetTrackingScaling",
           resource_id: asTraversal(`aws_appautoscaling_target.${bag.Name}_fargate_scaling_target.resource_id`),
           scalable_dimension: asTraversal(`aws_appautoscaling_target.${bag.Name}_fargate_scaling_target.scalable_dimension`),
@@ -705,35 +832,8 @@
         })
       );
     }
-    if (container[AWS_DYNAMODB] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-      asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`);
-      databags.push(
-        cloudResource("aws_vpc_endpoint", `${bag.Name}_fargate_ddb_vpc_endpoint`, {
-          vpc_id: appendToTraversal(vpcRef, "id"),
-          service_name: asTemplate([
-            "com.amazonaws.",
-            asTraversal(`data.aws_region.${regionDataName}.name`),
-            ".dynamodb"
-          ]),
-          route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`)
-        })
-      );
-    }
-    if (container[AWS_S3] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-      databags.push(
-        cloudResource("aws_vpc_endpoint", `${bag.Name}_fargate_s3_vpc_endpoint`, {
-          vpc_id: appendToTraversal(vpcRef, "id"),
-          service_name: asTemplate([
-            "com.amazonaws.",
-            asTraversal(`data.aws_region.${regionDataName}.name`),
-            ".s3"
-          ]),
-          route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`)
-        })
-      );
-    }
     let ecsService = {
-      name: appendToTemplate(namePrefix, [bag.Name]),
+      name: appendToTemplate(namePrefix, [`${bag.Name}-fargate-service`]),
       cluster: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.id`),
       task_definition: asTraversal(`aws_ecs_task_definition.${bag.Name}_fargate_task_def.arn`),
       desired_count: block.desired_count || 1,
@@ -741,7 +841,26 @@
       enable_ecs_managed_tags: true,
       propagate_tags: "SERVICE",
       network_configuration: asBlock([{
-        subnets: subnetIds,
+        subnets: (() => {
+          if (block.task_accessibility) {
+            const accessibility = asStr(block.task_accessibility);
+            switch (accessibility) {
+              case "public":
+                return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
+              case "private":
+                return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
+              default:
+                throw new Error(`Unknown value '${accessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`);
+            }
+          }
+          if (block.load_balancer) {
+            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
+          }
+          if (block.network && dotNetwork.make_nat_gateway && asVal(dotNetwork.make_nat_gateway)) {
+            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`);
+          }
+          return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
+        })(),
         security_groups: [securityGroupId],
         assign_public_ip: true
       }])
@@ -750,9 +869,6 @@
       ecsService.force_new_deployment = false;
     } else {
       ecsService.force_new_deployment = true;
-      ecsService.triggers = {
-        redeployment: asFuncCall("timestamp", [])
-      };
     }
     if (block.auto_scaling) {
       ecsService.lifecycle = asBlock([{
@@ -803,65 +919,61 @@
       }), (x) => `${x.target_port}-${x.load_balancer_port}-${x.protocol}`);
       const loadBalancerType = asStr(dotLoadBalancer.type || "application");
       const internal = asVal(dotLoadBalancer.internal || asSyntax(false));
-      const loadBalancerDotSubnets = asValArrayConst(dotLoadBalancer.subnets || asSyntax([{
-        /*this makes a default subnet if none defined*/
-      }]));
       databags.push(
-        ...loadBalancerDotSubnets.flatMap((dotDubnet, i) => makeSubnets(dotDubnet, `_lb`, i)),
-        cloudResource("aws_security_group", `aws_fargate_task_${bag.Name}_lb_secgr`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-sg`]),
-          vpc_id: appendToTraversal(vpcRef, "id")
+        cloudResource("aws_security_group", `aws_fargate_service_${bag.Name}_lb_secgr`, {
+          name: appendToTemplate(namePrefix, [`${bag.Name}-fsn-sg`]),
+          vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`)
         }),
         //allow all traffic from elements in the same security group
-        cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_lb_self_secgr_ingress`, {
+        cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_lb_self_secgr_ingress`, {
           type: "ingress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
           from_port: 0,
           to_port: 65535,
           protocol: -1,
-          source_security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`)
+          source_security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`)
         }),
         //allow all outbound traffic
-        cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_lb_secgr_egress`, {
+        cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_lb_secgr_egress`, {
           type: "egress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
           from_port: 0,
           to_port: 65535,
           protocol: -1,
           cidr_blocks: ["0.0.0.0/0"]
         }),
-        ...portsToOpenLoadBalancer.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_secgr_ingress`, {
+        ...portsToOpenLoadBalancer.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_secgr_ingress`, {
           type: "ingress",
-          security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+          security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
           from_port: parseInt(obj.load_balancer_port),
           to_port: parseInt(obj.load_balancer_port),
           protocol: asSgProtocol(obj.protocol),
           cidr_blocks: ["0.0.0.0/0"]
         })),
         ...portsToOpenLoadBalancer.flatMap((obj) => [
-          cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener`, {
+          cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener`, {
             load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
             port: obj.load_balancer_port,
             protocol: asLbProtocol(obj.protocol),
             default_action: asBlock([{
               type: "forward",
-              target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`)
+              target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`)
             }])
           }),
-          cloudResource("aws_lb_target_group", `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target`, {
-            name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-lb-tg`]),
+          cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target`, {
+            name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-fs-lb-tg`]),
             port: obj.target_port,
             protocol: asLbProtocol(obj.protocol),
-            vpc_id: appendToTraversal(vpcRef, "id"),
+            vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
             target_type: "ip"
           })
         ])
       );
       if (loadBalancerType === "application") {
         databags.push(
-          cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_http_lb_secgr_ingress`, {
+          cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_http_lb_secgr_ingress`, {
             type: "ingress",
-            security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+            security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
             from_port: 80,
             to_port: 80,
             protocol: "tcp",
@@ -870,9 +982,9 @@
         );
         if (enableHttps) {
           databags.push(
-            cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_https_lb_secgr_ingress`, {
+            cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_https_lb_secgr_ingress`, {
               type: "ingress",
-              security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+              security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
               from_port: 443,
               to_port: 443,
               protocol: "tcp",
@@ -882,20 +994,20 @@
         }
         if (portsToOpen.length === 1) {
           databags.push(
-            cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_lonely_http_lb_listener`, {
+            cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_lonely_http_lb_listener`, {
               load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
               port: 80,
               protocol: "HTTP",
               default_action: asBlock([{
                 type: "forward",
-                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_lonely_http_lb_listener_target.arn`)
+                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target.arn`)
               }])
             }),
-            cloudResource("aws_lb_target_group", `aws_fargate_task_${bag.Name}_lonely_http_lb_listener_target`, {
-              name: appendToTemplate(namePrefix, [`${bag.Name}-lhttp-lb-tg`]),
+            cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target`, {
+              name: appendToTemplate(namePrefix, [`${bag.Name}-fs-lhttp-lb-tg`]),
               port: portsToOpen[0].port,
               protocol: asLbProtocol(portsToOpen[0].protocol),
-              vpc_id: appendToTraversal(vpcRef, "id"),
+              vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
               target_type: "ip"
             })
           );
@@ -904,57 +1016,60 @@
           const fourFourThreeIsOpen = portsToOpen.some((obj) => obj.port === "443");
           if (eightyIsOpen) {
             databags.push(
-              cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_http_lb_listener`, {
+              cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_http_lb_listener`, {
                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                 port: 80,
                 protocol: "HTTP",
                 default_action: asBlock([{
                   type: "forward",
-                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_http_lb_listener_target.arn`)
+                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_http_lb_listener_target.arn`)
                 }])
               }),
-              cloudResource("aws_lb_target_group", `aws_fargate_task_${bag.Name}_http_lb_listener_target`, {
-                name: appendToTemplate(namePrefix, [`${bag.Name}-http-lb-tg`]),
+              cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_http_lb_listener_target`, {
+                name: appendToTemplate(namePrefix, [`${bag.Name}-fs-http-lb-tg`]),
                 port: 80,
                 protocol: "HTTP",
-                vpc_id: appendToTraversal(vpcRef, "id"),
+                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                 target_type: "ip"
               })
             );
           }
           if (fourFourThreeIsOpen) {
             if (enableHttps) {
+              const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
+              const { certArn, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
               databags.push(
-                cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_https_lb_listener`, {
+                ...domainResources,
+                cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_https_lb_listener`, {
                   load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                   port: 443,
                   protocol: "HTTPS",
-                  certificate_arn: TODO,
+                  certificate_arn: certArn,
                   default_action: asBlock([{
                     type: "forward",
-                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_https_lb_listener_target.arn`)
+                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_https_lb_listener_target.arn`)
                   }])
                 })
               );
             } else if (!eightyIsOpen) {
               databags.push(
-                cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_http_lb_listener`, {
+                cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_http_lb_listener`, {
                   load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                   port: 80,
                   protocol: "HTTP",
                   default_action: asBlock([{
                     type: "forward",
-                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_https_lb_listener_target.arn`)
+                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_https_lb_listener_target.arn`)
                   }])
                 })
               );
             }
             databags.push(
-              cloudResource("aws_lb_target_group", `aws_fargate_task_${bag.Name}_https_lb_listener_target`, {
-                name: appendToTemplate(namePrefix, [`${bag.Name}-https-lb-tg`]),
+              cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_https_lb_listener_target`, {
+                name: appendToTemplate(namePrefix, [`${bag.Name}-fs-https-lb-tg`]),
                 port: 443,
                 protocol: "HTTPS",
-                vpc_id: appendToTraversal(vpcRef, "id"),
+                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                 target_type: "ip"
               })
             );
@@ -964,9 +1079,9 @@
       }
       if (loadBalancerType === "network") {
         databags.push(
-          ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_task_${bag.Name}_${obj.protocol}${obj.port}_lb_secgr_ingress`, {
+          ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.port}_lb_secgr_ingress`, {
             type: "ingress",
-            security_group_id: asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`),
+            security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`),
             from_port: parseInt(obj.port),
             to_port: parseInt(obj.port),
             protocol: obj.protocol,
@@ -976,21 +1091,21 @@
         if (!dotLoadBalancer.port_mapping) {
           databags.push(
             ...portsToOpen.flatMap((obj) => [
-              cloudResource("aws_lb_listener", `aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener`, {
+              cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener`, {
                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                 port: obj.port,
                 //listeners attaches to network load balancers must be TCP
                 protocol: "TCP",
                 default_action: asBlock([{
                   type: "forward",
-                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener_target.arn`)
+                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target.arn`)
                 }])
               }),
-              cloudResource("aws_lb_target_group", `aws_fargate_task_${bag.Name}_net_${obj.port}_lb_listener_target`, {
-                name: appendToTemplate(namePrefix, [`${bag.Name}-net${obj.port}-lb-tg`]),
+              cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target`, {
+                name: appendToTemplate(namePrefix, [`${bag.Name}-fsn${obj.port}`]),
                 port: obj.port,
                 protocol: "TCP",
-                vpc_id: appendToTraversal(vpcRef, "id"),
+                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                 target_type: "ip"
               })
             ])
@@ -999,25 +1114,25 @@
       }
       if (defineAccessLogsResources && !dotAccessLogs.bucket) {
         databags.push(
-          cloudResource("aws_s3_bucket", `aws_fargate_task_${bag.Name}_lb_access_logs_bucket`, {
-            bucket: appendToTemplate(namePrefix, [`${bag.Name}-lb-access-logs`]),
+          cloudResource("aws_s3_bucket", `aws_fargate_service_${bag.Name}_lb_access_logs_bucket`, {
+            bucket: appendToTemplate(namePrefix, [`${bag.Name}-fs-lb-access-logs`]),
             force_destroy: true
           })
         );
       }
       databags.push(
         cloudResource("aws_lb", `${bag.Name}_fargate_lb`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-lb`]),
+          name: appendToTemplate(namePrefix, [`${bag.Name}-fs-lb`]),
           internal,
           load_balancer_type: loadBalancerType,
-          subnets: "TODO",
-          security_groups: [
-            asTraversal(`aws_security_group.aws_fargate_task_${bag.Name}_lb_secgr.id`)
+          subnets: internal ? asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`) : asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`),
+          security_groups: loadBalancerType === "network" ? null : [
+            asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_lb_secgr.id`)
           ],
           access_logs: defineAccessLogsResources ? asBlock([{
             enabled: dotAccessLogs.enabled || true,
-            bucket: dotAccessLogs.bucket ? dotAccessLogs.bucket : asTraversal(`aws_s3_bucket.aws_fargate_task_${bag.Name}_lb_access_logs_bucket.id`),
-            prefix: dotAccessLogs.prefix || appendToTemplate(namePrefix, [`${bag.Name}-lb-access-logs`])
+            bucket: dotAccessLogs.bucket ? dotAccessLogs.bucket : asTraversal(`aws_s3_bucket.aws_fargate_service_${bag.Name}_lb_access_logs_bucket.id`),
+            prefix: dotAccessLogs.prefix || appendToTemplate(namePrefix, [`${bag.Name}-fs-lb-access-logs`])
           }]) : null,
           customer_owned_ipv4_pool: dotLoadBalancer.customer_owned_ipv4_pool,
           desync_mitigation_mode: dotLoadBalancer.desync_mitigation_mode,
@@ -1033,15 +1148,17 @@
       );
     }
     databags.push(
+      cloudData("aws_availability_zones", "current", {}),
       cloudResource("aws_ecs_cluster", `${bag.Name}_fargate_cluster`, {
-        name: appendToTemplate(namePrefix, [`${bag.Name}-cluster`])
+        name: appendToTemplate(namePrefix, [`${bag.Name}-fs-cluster`])
       }),
+      cloudResource("aws_ecs_service", `${bag.Name}_fargate_service`, ecsService),
       cloudResource("aws_cloudwatch_log_group", `${bag.Name}_fargate_task_logs`, {
         name: appendToTemplate(asSyntax("/ecs/"), [namePrefix, bag.Name]),
         retention_in_days: block.logs_retention_days || 30
       }),
       cloudResource("aws_ecs_task_definition", `${bag.Name}_fargate_task_def`, {
-        family: appendToTemplate(namePrefix, [bag.Name]),
+        family: appendToTemplate(namePrefix, [`${bag.Name}-fs-task-def`]),
         cpu,
         memory,
         network_mode: "awsvpc",
@@ -1053,8 +1170,8 @@
           //that's an array of arrays cause we're json marshalling a list of objects
           [[
             {
-              name: appendToTemplate(namePrefix, [bag.Name]),
-              image: repositoryUrl,
+              name: appendToTemplate(namePrefix, [`${bag.Name}-fs-task-def`]),
+              image: imageUrl,
               cpu,
               memory,
               environment: Object.entries(dotEnvironment).map(([name, value]) => ({ name, value })),
@@ -1081,10 +1198,117 @@
             }
           ]]
         )
-      }),
-      cloudResource("aws_ecs_service", `${bag.Name}_fargate_service`, ecsService)
+      })
     );
+    return { databags, imports };
+  }
+  function generate() {
+    const g = iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceGenerateIterator).flat();
+    exportDatabags(g.map((x) => x.databags).flat());
+    exportDatabags(importComponents(container, g.map((x) => x.imports).flat()));
+  }
+  function awsFargateServiceApplyIterator(bag) {
+    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || "us-east-1");
+    const dotContainerImage = compileBlockParam(block, "container_image");
+    const hasProvidedImage = !!(block.image || dotContainerImage.image);
+    const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
+    let databags = [];
+    if (hasProvidedImage && shouldCopyProvidedImage) {
+      console.log("copying image to ecr", JSON.stringify(container));
+      if (!container.terraform_execute_output?.default_apply) {
+        return [];
+      }
+      const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
+      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
+      const providedImage = asStr(block.image || dotContainerImage.image);
+      let loginCommand = "";
+      if (!block.repository_url) {
+        loginCommand = `RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}`;
+      }
+      databags.push({
+        Type: "buildkit_run_in_container",
+        Name: `${bag.Name}_aws_fargate_service_image_copy`,
+        Value: {
+          display_name: `Image copy - aws_fargate_service.${bag.Name}`,
+          no_cache: true,
+          dockerfile: `
+                    FROM docker
+
+                    RUN apk add curl && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &&                         unzip awscliv2.zip &&                         ./aws/install
+
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker pull ${providedImage}
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag ${providedImage} ${imageUrl}
+                    ${loginCommand}
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}`
+        }
+      });
+    }
+    if (!hasProvidedImage) {
+      console.log("building img", JSON.stringify(container));
+      if (!container.terraform_execute_output?.default_apply) {
+        return [];
+      }
+      const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
+      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
+      const baseDir = asStr(dotContainerImage.build_from || ".");
+      let dockerfileContent = asStr(block.dockerfile || dotContainerImage.dockerfile || throwStatement(`aws_fargate_service.${bag.Name} needs a 'dockerfile' (path or file content) or 'image' property`));
+      if (!dockerfileContent.includes("\n")) {
+        const isFileResult = statFile(dockerfileContent);
+        if (isSuccess(isFileResult)) {
+          if (isFileResult.result.isDir) {
+            throwStatement(`aws_fargate_service.${bag.Name}.dockerfile path is a directory`);
+          }
+          dockerfileContent = os.file.readFile(dockerfileContent);
+        }
+      }
+      const awsCreds = getAwsCreds();
+      if (!awsCreds) {
+        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
+      }
+      databags.push({
+        Type: "buildkit_run_in_container",
+        Name: `${bag.Name}_aws_fargate_service_image_build`,
+        Value: {
+          display_name: `Image build - aws_fargate_service.${bag.Name}`,
+          input_files: {
+            "__barbe_dockerfile": dockerfileContent
+          },
+          dockerfile: `
+                    FROM amazon/aws-cli:latest
+                    
+                    # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
+                    RUN yum install -y yum-utils &&                         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                         sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                         yum install docker-ce-cli -y
+
+                    ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                    ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                    ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                    ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
+                    ENV AWS_PAGER=""
+
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}
+
+                    COPY --from=src __barbe_dockerfile __barbe_dockerfile
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker build -f __barbe_dockerfile -t barbeimg ${baseDir}
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag barbeimg:latest ${imageUrl}:latest
+                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}:latest
+                `
+        }
+      });
+    }
     return databags;
   }
-  exportDatabags(iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateIterator).flat());
+  function apply() {
+    exportDatabags(iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceApplyIterator).flat());
+  }
+  switch (barbeLifecycleStep()) {
+    case "pre_generate":
+    case "generate":
+    case "post_generate":
+      generate();
+      break;
+    case "post_apply":
+      apply();
+      break;
+  }
 })();

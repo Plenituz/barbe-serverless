@@ -39,7 +39,7 @@ export function applyDefaults(container: DatabagContainer, block: SyntaxToken): 
     ];
 }
 
-export function compileNamePrefix(container: DatabagContainer, block: SyntaxToken): SyntaxToken {
+export function compileNamePrefix(container: DatabagContainer, block: SyntaxToken | null): SyntaxToken {
     let namePrefixes: SyntaxToken[] = []
     if (container.global_default) {
         const globalDefaults = Object.values(container.global_default)
@@ -51,13 +51,13 @@ export function compileNamePrefix(container: DatabagContainer, block: SyntaxToke
         namePrefixes.push(...globalDefaults);
     }
 
-    let defaultName: string
-    const copyFrom = block.ObjectConst?.find(pair => pair.Key === 'copy_from');
-    if(copyFrom) {
-        defaultName = asStr(copyFrom.Value);
-    } else {
-        // the unamed default block is actually named ''
-        defaultName = '';
+    // the unamed default block is actually named ''
+    let defaultName = ''
+    if(block) {
+        const copyFrom = block.ObjectConst?.find(pair => pair.Key === 'copy_from');
+        if(copyFrom) {
+            defaultName = asStr(copyFrom.Value);
+        }
     }
 
     if (container.default && container.default[defaultName]) {
@@ -69,7 +69,9 @@ export function compileNamePrefix(container: DatabagContainer, block: SyntaxToke
             .map(block => block!.Value)
         namePrefixes.push(...defaults);
     }
-    namePrefixes.push(...(block.ObjectConst?.filter(pair => pair.Key === 'name_prefix').map(pair => pair.Value) || []))
+    if(block) {
+        namePrefixes.push(...(block.ObjectConst?.filter(pair => pair.Key === 'name_prefix').map(pair => pair.Value) || []))
+    }
 
     let output: SyntaxToken = {
         Type: 'template',
@@ -99,7 +101,7 @@ export function compileNamePrefix(container: DatabagContainer, block: SyntaxToke
 
 export function compileGlobalNamePrefix(container: DatabagContainer): SyntaxToken {
     const globalDefaults = asVal(compileDefaults(container, ''));
-    return concatStrArr(globalDefaults.name_prefix || asSyntax([]));
+    return compileNamePrefix(container, globalDefaults);
 }
 
 /*

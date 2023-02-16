@@ -856,6 +856,10 @@ export function statFile(fileName: string): RpcResponse<FileStat> {
     });
 }
 
+export function throwStatement(message: string): never {
+    throw new Error(message)
+}
+
 export function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"))
 }
