@@ -55,12 +55,14 @@ dotDomain: {
     existing_certificate_domain?: string,
     certificate_domain_to_create?: string,
 }
+certRef is only returned if the ACM certificate is created by this function
 */
-export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: SyntaxToken, resourcePrefix: string, cloudData: PreConfFactory, cloudResource: PreConfFactory): { certArn: SyntaxToken, databags: SugarCoatedDatabag[] } {
+export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: SyntaxToken, resourcePrefix: string, cloudData: PreConfFactory, cloudResource: PreConfFactory): { certArn: SyntaxToken, certRef?: SyntaxToken, databags: SugarCoatedDatabag[] } {
     if(!dotDomain.name) {
         throw new Error('no domain name given')
     }
     let certArn: SyntaxToken
+    let certRef: SyntaxToken
     const acmCertificateResources = (domain: SyntaxToken): SugarCoatedDatabag[] => {
         return [
             cloudResource('aws_acm_certificate', `${resourcePrefix}_cert`, {
@@ -125,13 +127,15 @@ export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: Synt
             )
         } else if(dotDomain.certificate_domain_to_create) {
             certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`)
+            certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`)
             databags.push(...acmCertificateResources(dotDomain.certificate_domain_to_create))
         } else {
             certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`)
+            certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`)
             databags.push(...acmCertificateResources(dotDomain.name))
         }
     } else {
         certArn = dotDomain.certificate_arn
     }
-    return { certArn, databags }
+    return { certArn, certRef, databags }
 }

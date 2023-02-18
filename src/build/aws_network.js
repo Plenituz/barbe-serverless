@@ -1,5 +1,8 @@
 (() => {
   // barbe-sls-lib/consts.ts
+  var AWS_S3 = "aws_s3";
+  var AWS_DYNAMODB = "aws_dynamodb";
+  var AWS_FARGATE_SERVICE = "aws_fargate_service";
   var AWS_NETWORK = "aws_network";
   var BARBE_SLS_VERSION = "v0.2.2";
   var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
@@ -176,6 +179,12 @@
       FunctionArgs: args.map(asSyntax)
     };
   }
+  function asTemplate(arr) {
+    return {
+      Type: "template",
+      Parts: arr.map(asSyntax)
+    };
+  }
   function appendToTemplate(source, toAdd) {
     let parts = [];
     if (source.Type === "template") {
@@ -307,6 +316,17 @@
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }
+  function uniq(arr, key) {
+    const seen = /* @__PURE__ */ new Set();
+    return arr.filter((item) => {
+      const val = key ? key(item) : item;
+      if (seen.has(val)) {
+        return false;
+      }
+      seen.add(val);
+      return true;
+    });
+  }
 
   // barbe-sls-lib/lib.ts
   function compileDefaults(container2, name) {
@@ -421,6 +441,7 @@
     const cloudData = preConfCloudResourceFactory(block, "data");
     const traversalTransform = preConfTraversalTransform(bag);
     const avZoneDataName = asStr(block.region || "current");
+    const regionDataName = asStr(block.region || "current");
     const makeNatGateway = asVal(block.make_nat_gateway || asSyntax(false));
     const oneNatPerAZ = asVal(block.one_nat_per_az || asSyntax(false));
     const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false));
@@ -454,6 +475,70 @@
           enable_dns_support: block.enable_dns_support
         })
       );
+    }
+    if (!block.subnet_ids) {
+      let vpcEndpoints = asVal(block.vpc_endpoints || asSyntax([]));
+      if (container[AWS_DYNAMODB]) {
+        vpcEndpoints.push("dynamodb");
+      }
+      if (container[AWS_S3]) {
+        vpcEndpoints.push("s3");
+      }
+      if (container[AWS_FARGATE_SERVICE] || container[AWS_FARGATE_SERVICE]) {
+        vpcEndpoints.push("ecr.api", "ecr.dkr", "ecs", "s3", "logs", "secretsmanager");
+      }
+      vpcEndpoints = uniq(vpcEndpoints, asStr);
+      databags.push(
+        //this is needed for the members of the subnet to access the AWS services (thru https)
+        cloudResource("aws_security_group", `${bag.Name}_vpc_endpoint_secgr`, {
+          name: appendToTemplate(namePrefix, [`${bag.Name}-vpc-endpoint`]),
+          vpc_id: appendToTraversal(vpcRef, "id"),
+          ingress: asBlock([{
+            from_port: 443,
+            to_port: 443,
+            protocol: "tcp",
+            cidr_blocks: ["0.0.0.0/0"]
+          }])
+        })
+      );
+      for (const endpoint of vpcEndpoints) {
+        const endpointStr = asStr(endpoint);
+        let endpointType = "Interface";
+        if (endpointStr === "dynamodb" || endpointStr === "s3") {
+          endpointType = "Gateway";
+        }
+        let serviceName = asTemplate([
+          "com.amazonaws.",
+          asTraversal(`data.aws_region.${regionDataName}.name`),
+          ".",
+          endpoint
+        ]);
+        if (endpointStr === "notebook" || endpointStr === "studio") {
+          serviceName = asTemplate([
+            "aws.sagemaker.",
+            asTraversal(`data.aws_region.${regionDataName}.name`),
+            ".",
+            endpoint
+          ]);
+        }
+        databags.push(
+          cloudResource("aws_vpc_endpoint", `${bag.Name}_${endpointStr.replace(/\./, "-")}_vpc_endpoint`, {
+            vpc_id: appendToTraversal(vpcRef, "id"),
+            service_name: serviceName,
+            vpc_endpoint_type: endpointType,
+            private_dns_enabled: endpointType === "Interface",
+            route_table_ids: endpointType === "Gateway" ? [
+              asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`)
+            ] : null,
+            security_group_ids: endpointType === "Interface" ? [
+              asTraversal(`aws_security_group.${bag.Name}_vpc_endpoint_secgr.id`)
+            ] : null,
+            subnet_ids: endpointType === "Interface" ? asFuncCall("concat", [
+              asTraversal(`aws_subnet.aws_network_${bag.Name}_private_subnets.*.id`)
+            ]) : null
+          })
+        );
+      }
     }
     if (makeNatGateway) {
       if (oneNatPerAZ) {
@@ -567,16 +652,16 @@
         //routes for this table are created in the nat gateway section
         vpc_id: appendToTraversal(vpcRef, "id"),
         tags: {
-          Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`])
+          Name: appendToTemplate(namePrefix, [`${bag.Name}-private-rtable`])
         }
       }),
-      cloudResource("aws_route_table_association", `aws_network_${bag.Name}_public_subnets_route_table_association`, {
+      cloudResource("aws_route_table_association", `aws_network_${bag.Name}_private_subnets_route_table_association`, {
         count: asFuncCall("length", [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
         subnet_id: asFuncCall("element", [
-          asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets.*.id`),
+          asTraversal(`aws_subnet.aws_network_${bag.Name}_private_subnets.*.id`),
           asTraversal("count.index")
         ]),
-        route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_public_subnets_route_table.id`)
+        route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`)
       })
     );
     return databags;

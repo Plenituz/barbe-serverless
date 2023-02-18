@@ -2,7 +2,7 @@
 import { DatabagContainer, SyntaxToken, asStr, mergeTokens, asVal, concatStrArr, asSyntax, cloudResourceRaw, asTraversal, CloudResourceBuilder, applyTransformers, Databag } from '../barbe-std/utils';
 
 export type DatabagObjVal = {
-    [key: string]: SyntaxToken | undefined 
+    [key: string]: SyntaxToken | undefined
 }
 
 export function compileDefaults(container: DatabagContainer, name: string): SyntaxToken {

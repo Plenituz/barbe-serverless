@@ -1,6 +1,6 @@
-import { AWS_NETWORK } from "./barbe-sls-lib/consts"
+import { AWS_DYNAMODB, AWS_NETWORK, AWS_S3, AWS_FARGATE_SERVICE } from './barbe-sls-lib/consts';
 import { applyDefaults, preConfCloudResourceFactory, preConfTraversalTransform } from "./barbe-sls-lib/lib"
-import { asStr, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, appendToTemplate, appendToTraversal, asBinaryOp, asBlock, asFuncCall, asTraversal, asSyntax, asVal, SyntaxToken } from './barbe-std/utils';
+import { asStr, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, appendToTemplate, appendToTraversal, asBinaryOp, asBlock, asFuncCall, asTraversal, asSyntax, asVal, SyntaxToken, asTemplate, uniq } from './barbe-std/utils';
 
 
 const container = readDatabagContainer()
@@ -15,6 +15,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     const cloudData = preConfCloudResourceFactory(block, 'data')
     const traversalTransform = preConfTraversalTransform(bag)
     const avZoneDataName = asStr(block.region || 'current')
+    const regionDataName = asStr(block.region || 'current')
     const makeNatGateway = asVal(block.make_nat_gateway || asSyntax(false))
     const oneNatPerAZ = asVal(block.one_nat_per_az || asSyntax(false))
     const useDefaultVpc = asVal(block.use_default_vpc || asSyntax(false))
@@ -23,36 +24,6 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
 
     let databags: SugarCoatedDatabag[] = []
     let vpcRef: SyntaxToken
-
-    //TODO VPC endpoints
-    // if(container[AWS_DYNAMODB] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-    //     asTraversal(`data.aws_availability_zones.${avZoneDataName}.names[0]`)
-    //     databags.push(
-    //         cloudResource('aws_vpc_endpoint', `${bag.Name}_fargate_ddb_vpc_endpoint`, {
-    //             vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-    //             service_name: asTemplate([
-    //                 'com.amazonaws.',
-    //                 asTraversal(`data.aws_region.${regionDataName}.name`),
-    //                 '.dynamodb'
-    //             ]),
-    //             route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`),
-    //         })
-    //     )
-    // }
-    // if(container[AWS_S3] && !block.vpc_id && !useDefaultVpc && !block.subnet_ids) {
-    //     databags.push(
-    //         cloudResource('aws_vpc_endpoint', `${bag.Name}_fargate_s3_vpc_endpoint`, {
-    //             vpc_id: appendToTraversal(vpcRef, 'id'),
-    //             service_name: asTemplate([
-    //                 'com.amazonaws.',
-    //                 asTraversal(`data.aws_region.${regionDataName}.name`),
-    //                 '.s3'
-    //             ]),
-    //             route_table_ids: dotSubnets.map((_, i) => `aws_route_table.aws_fargate_task_${bag.Name}_subnet_${i}_route_table.id`),
-    //         })
-    //     )
-    // }
-
 
     if(useDefaultVpc) {
         vpcRef = asTraversal('data.aws_vpc.default.id')
@@ -80,6 +51,76 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 enable_dns_support: block.enable_dns_support,
             })
         )
+    }
+
+    //VPC endpoints only if we control the subnets
+    if(!block.subnet_ids) {
+        let vpcEndpoints: (SyntaxToken | string)[] = asVal(block.vpc_endpoints || asSyntax([]))
+        if(container[AWS_DYNAMODB]) {
+            vpcEndpoints.push('dynamodb')
+        }
+        if(container[AWS_S3]) {
+            vpcEndpoints.push('s3')
+        }
+        if(container[AWS_FARGATE_SERVICE] || container[AWS_FARGATE_SERVICE]) {
+            //ECR for image pull authentication, S3 for image layers, and AWS Secrets Manager for secrets: https://stackoverflow.com/questions/61265108/aws-ecs-fargate-resourceinitializationerror-unable-to-pull-secrets-or-registry
+            vpcEndpoints.push('ecr.api', 'ecr.dkr', 'ecs', 's3', 'logs', 'secretsmanager')
+        }
+        vpcEndpoints = uniq(vpcEndpoints, asStr)
+
+        databags.push(
+            //this is needed for the members of the subnet to access the AWS services (thru https)
+            cloudResource('aws_security_group', `${bag.Name}_vpc_endpoint_secgr`, {
+                name: appendToTemplate(namePrefix, [`${bag.Name}-vpc-endpoint`]),
+                vpc_id: appendToTraversal(vpcRef, 'id'),
+                ingress: asBlock([{
+                    from_port: 443,
+                    to_port: 443,
+                    protocol: 'tcp',
+                    cidr_blocks: ['0.0.0.0/0']
+                }])
+            })
+        )
+        for(const endpoint of vpcEndpoints) {
+            const endpointStr = asStr(endpoint)
+            let endpointType = 'Interface'
+            if(endpointStr === 'dynamodb' || endpointStr === 's3') {
+                //Gateway type is for S3 and DynamoDB: https://docs.aws.amazon.com/whitepapers/latest/aws-privatelink/what-are-vpc-endpoints.html
+                endpointType = 'Gateway'
+            }
+            let serviceName = asTemplate([
+                'com.amazonaws.',
+                asTraversal(`data.aws_region.${regionDataName}.name`),
+                '.',
+                endpoint
+            ])
+            if(endpointStr === 'notebook' || endpointStr === 'studio') {
+                //sagemaker is an exception to the service name convention: https://docs.aws.amazon.com/vpc/latest/privatelink/aws-services-privatelink-support.html
+                serviceName = asTemplate([
+                    'aws.sagemaker.',
+                    asTraversal(`data.aws_region.${regionDataName}.name`),
+                    '.',
+                    endpoint
+                ])
+            }
+            databags.push(
+                cloudResource('aws_vpc_endpoint', `${bag.Name}_${endpointStr.replace(/\./, '-')}_vpc_endpoint`, {
+                    vpc_id: appendToTraversal(vpcRef, 'id'),
+                    service_name: serviceName,
+                    vpc_endpoint_type: endpointType,
+                    private_dns_enabled: endpointType === 'Interface',
+                    route_table_ids: endpointType === 'Gateway' ? [
+                        asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`),
+                    ] : null,
+                    security_group_ids: endpointType === 'Interface' ? [
+                        asTraversal(`aws_security_group.${bag.Name}_vpc_endpoint_secgr.id`)
+                    ] : null,
+                    subnet_ids: endpointType === 'Interface' ? asFuncCall('concat', [
+                        asTraversal(`aws_subnet.aws_network_${bag.Name}_private_subnets.*.id`),
+                    ]) : null,
+                })
+            )
+        }
     }
 
     if(makeNatGateway) {
@@ -196,16 +237,16 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             //routes for this table are created in the nat gateway section
             vpc_id: appendToTraversal(vpcRef, 'id'),
             tags: {
-                Name: appendToTemplate(namePrefix, [`${bag.Name}-public-rtable`]),
+                Name: appendToTemplate(namePrefix, [`${bag.Name}-private-rtable`]),
             }
         }),
-        cloudResource('aws_route_table_association', `aws_network_${bag.Name}_public_subnets_route_table_association`, {
+        cloudResource('aws_route_table_association', `aws_network_${bag.Name}_private_subnets_route_table_association`, {
             count: asFuncCall('length', [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
             subnet_id: asFuncCall('element', [
-                asTraversal(`aws_subnet.aws_network_${bag.Name}_public_subnets.*.id`), 
+                asTraversal(`aws_subnet.aws_network_${bag.Name}_private_subnets.*.id`), 
                 asTraversal('count.index')
             ]),
-            route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_public_subnets_route_table.id`),
+            route_table_id: asTraversal(`aws_route_table.aws_network_${bag.Name}_private_subnets_route_table.id`),
         })
     )
     return databags

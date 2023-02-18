@@ -540,6 +540,7 @@
       throw new Error("no domain name given");
     }
     let certArn;
+    let certRef;
     const acmCertificateResources = (domain) => {
       return [
         cloudResource("aws_acm_certificate", `${resourcePrefix}_cert`, {
@@ -603,15 +604,77 @@
         );
       } else if (dotDomain.certificate_domain_to_create) {
         certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
+        certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`);
         databags.push(...acmCertificateResources(dotDomain.certificate_domain_to_create));
       } else {
         certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
+        certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`);
         databags.push(...acmCertificateResources(dotDomain.name));
       }
     } else {
       certArn = dotDomain.certificate_arn;
     }
-    return { certArn, databags };
+    return { certArn, certRef, databags };
+  }
+
+  // ../../anyfront/src/anyfront-lib/pipeline.ts
+  function mergeDatabagContainers(...containers) {
+    let output = {};
+    for (const container2 of containers) {
+      for (const [blockType, block] of Object.entries(container2)) {
+        output[blockType] = output[blockType] || {};
+        for (const [bagName, bag] of Object.entries(block)) {
+          output[blockType][bagName] = output[blockType][bagName] || [];
+          output[blockType][bagName].push(...bag);
+        }
+      }
+    }
+    return output;
+  }
+  function executePipelineGroup(container2, pipelines) {
+    let maxStep = pipelines.map((p) => p.steps.length).reduce((a, b) => Math.max(a, b), 0);
+    let previousStepResult = {};
+    let history = [];
+    for (let i = 0; i < maxStep; i++) {
+      let stepResults = {};
+      let stepImports = [];
+      let stepTransforms = [];
+      let stepDatabags = [];
+      for (let pipeline of pipelines) {
+        if (i >= pipeline.steps.length) {
+          continue;
+        }
+        let stepRequests = pipeline.steps[i]({
+          previousStepResult,
+          history
+        });
+        if (!stepRequests) {
+          continue;
+        }
+        if (stepRequests.imports) {
+          stepImports.push(...stepRequests.imports);
+        }
+        if (stepRequests.transforms) {
+          stepTransforms.push(...stepRequests.transforms);
+        }
+        if (stepRequests.databags) {
+          stepDatabags.push(...stepRequests.databags);
+        }
+      }
+      if (stepImports.length > 0) {
+        const importsResults = importComponents(container2, stepImports);
+        stepResults = mergeDatabagContainers(stepResults, importsResults);
+      }
+      if (stepTransforms.length > 0) {
+        const transformResults = applyTransformers(stepTransforms);
+        stepResults = mergeDatabagContainers(stepResults, transformResults);
+      }
+      if (stepDatabags.length > 0) {
+        exportDatabags(stepDatabags);
+      }
+      history.push(previousStepResult);
+      previousStepResult = stepResults;
+    }
   }
 
   // aws_fargate_service.ts
@@ -640,6 +703,9 @@
     const mappedPorts = asVal(block.mapped_ports || asSyntax([]));
     const hasProvidedImage = !!(block.image || dotContainerImage.image);
     const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
+    const taskAccessibility = block.task_accessibility ? asStr(block.task_accessibility) : null;
+    const containerName = appendToTemplate(namePrefix, [`${bag.Name}-fs-task-def`]);
+    const enableHttps = !!dotLoadBalancer.domain;
     const portsToOpen = uniq([
       ...portMapping.map((portMapping2) => ({
         port: asStr(portMapping2.host_port || portMapping2.container_port),
@@ -651,13 +717,10 @@
       }))
     ], (i) => i.port + i.protocol);
     if (portsToOpen.length === 0 && block.load_balancer) {
+      mappedPorts.push(asSyntax(80));
       portsToOpen.push(
         {
           port: "80",
-          protocol: "tcp"
-        },
-        {
-          port: "443",
           protocol: "tcp"
         }
       );
@@ -668,6 +731,9 @@
     let databags = [];
     let imports = [{
       url: AWS_NETWORK_URL,
+      //copy over the fargate_service block just to notify the aws_network to create the right vpc endpoints
+      //we could also just add vpc_endpoints manually but just in case it changes in the future we let the aws_network handle it
+      copyFromContainer: [AWS_FARGATE_SERVICE],
       input: [{
         Type: AWS_NETWORK,
         Name: `aws_fargate_service_${bag.Name}`,
@@ -695,7 +761,10 @@
     } else if (block.repository_url) {
       imageUrl = block.repository_url;
     } else {
-      imageUrl = asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`);
+      imageUrl = asTemplate([
+        asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`),
+        ":latest"
+      ]);
       databags.push(
         cloudResource("aws_ecr_repository", `aws_fargate_service_${bag.Name}_ecr_repository`, {
           name: appendToTemplate(namePrefix, [`${bag.Name}-fs-ecr`]),
@@ -832,6 +901,7 @@
         })
       );
     }
+    let ecsLoadBalancers = [];
     let ecsService = {
       name: appendToTemplate(namePrefix, [`${bag.Name}-fargate-service`]),
       cluster: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.id`),
@@ -842,15 +912,14 @@
       propagate_tags: "SERVICE",
       network_configuration: asBlock([{
         subnets: (() => {
-          if (block.task_accessibility) {
-            const accessibility = asStr(block.task_accessibility);
-            switch (accessibility) {
+          if (taskAccessibility) {
+            switch (taskAccessibility) {
               case "public":
                 return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
               case "private":
                 return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
               default:
-                throw new Error(`Unknown value '${accessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`);
+                throw new Error(`Unknown value '${taskAccessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`);
             }
           }
           if (block.load_balancer) {
@@ -865,17 +934,15 @@
         assign_public_ip: true
       }])
     };
-    if (asVal(block.dont_redeploy_on_apply || asSyntax(false))) {
-      ecsService.force_new_deployment = false;
-    } else {
-      ecsService.force_new_deployment = true;
-    }
     if (block.auto_scaling) {
       ecsService.lifecycle = asBlock([{
-        ignore_changes: [asSyntax("desired_count")]
+        ignore_changes: [asTraversal("desired_count")]
       }]);
     }
     if (block.load_balancer) {
+      ecsService.depends_on = [
+        asTraversal(`aws_lb.${bag.Name}_fargate_lb`)
+      ];
       const asSgProtocol = (protocol) => {
         switch (protocol.toLowerCase()) {
           case "http":
@@ -896,7 +963,6 @@
             return protocol.toUpperCase();
         }
       };
-      const enableHttps = !!dotLoadBalancer.domain;
       const defineAccessLogsResources = asVal(dotLoadBalancer.enable_access_logs || asSyntax(false)) || !!dotAutoScaling.access_logs;
       const dotAccessLogs = compileBlockParam(dotLoadBalancer, "access_logs");
       const portMappingLoadBalancer = asValArrayConst(dotLoadBalancer.port_mapping || asSyntax([]));
@@ -950,24 +1016,31 @@
           protocol: asSgProtocol(obj.protocol),
           cidr_blocks: ["0.0.0.0/0"]
         })),
-        ...portsToOpenLoadBalancer.flatMap((obj) => [
-          cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener`, {
-            load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
-            port: obj.load_balancer_port,
-            protocol: asLbProtocol(obj.protocol),
-            default_action: asBlock([{
-              type: "forward",
-              target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`)
-            }])
-          }),
-          cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target`, {
-            name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-fs-lb-tg`]),
-            port: obj.target_port,
-            protocol: asLbProtocol(obj.protocol),
-            vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-            target_type: "ip"
-          })
-        ])
+        ...portsToOpenLoadBalancer.flatMap((obj) => {
+          ecsLoadBalancers.push({
+            target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`),
+            container_name: containerName,
+            container_port: obj.target_port
+          });
+          return [
+            cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener`, {
+              load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+              port: obj.load_balancer_port,
+              protocol: asLbProtocol(obj.protocol),
+              default_action: asBlock([{
+                type: "forward",
+                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target.arn`)
+              }])
+            }),
+            cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.load_balancer_port}_lb_listener_target`, {
+              name: appendToTemplate(namePrefix, [`${bag.Name}-${obj.protocol}${obj.load_balancer_port}-fs-lb-tg`]),
+              port: obj.target_port,
+              protocol: asLbProtocol(obj.protocol),
+              vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
+              target_type: "ip"
+            })
+          ];
+        })
       );
       if (loadBalancerType === "application") {
         databags.push(
@@ -993,6 +1066,11 @@
           );
         }
         if (portsToOpen.length === 1) {
+          ecsLoadBalancers.push({
+            target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target.arn`),
+            container_name: containerName,
+            container_port: portsToOpen[0].port
+          });
           databags.push(
             cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_lonely_http_lb_listener`, {
               load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
@@ -1011,10 +1089,34 @@
               target_type: "ip"
             })
           );
+          if (enableHttps) {
+            const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
+            const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
+            databags.push(
+              ...domainResources,
+              cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_lonely_https_lb_listener`, {
+                depends_on: certRef ? [certRef] : null,
+                load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                port: 443,
+                protocol: "HTTPS",
+                certificate_arn: certArn,
+                default_action: asBlock([{
+                  type: "forward",
+                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target.arn`)
+                }])
+              })
+            );
+          }
         } else if (portsToOpen.some((obj) => obj.port === "80" || obj.port === "443")) {
+          console.log("portsToOpen", JSON.stringify(portsToOpen));
           const eightyIsOpen = portsToOpen.some((obj) => obj.port === "80");
           const fourFourThreeIsOpen = portsToOpen.some((obj) => obj.port === "443");
           if (eightyIsOpen) {
+            ecsLoadBalancers.push({
+              target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_http_lb_listener_target.arn`),
+              container_name: containerName,
+              container_port: 80
+            });
             databags.push(
               cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_http_lb_listener`, {
                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
@@ -1037,10 +1139,11 @@
           if (fourFourThreeIsOpen) {
             if (enableHttps) {
               const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
-              const { certArn, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
+              const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
               databags.push(
                 ...domainResources,
                 cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_https_lb_listener`, {
+                  depends_on: certRef ? [certRef] : null,
                   load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                   port: 443,
                   protocol: "HTTPS",
@@ -1064,6 +1167,11 @@
                 })
               );
             }
+            ecsLoadBalancers.push({
+              target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_https_lb_listener_target.arn`),
+              container_name: containerName,
+              container_port: 443
+            });
             databags.push(
               cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_https_lb_listener_target`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-fs-https-lb-tg`]),
@@ -1090,25 +1198,32 @@
         );
         if (!dotLoadBalancer.port_mapping) {
           databags.push(
-            ...portsToOpen.flatMap((obj) => [
-              cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener`, {
-                load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
-                port: obj.port,
-                //listeners attaches to network load balancers must be TCP
-                protocol: "TCP",
-                default_action: asBlock([{
-                  type: "forward",
-                  target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target.arn`)
-                }])
-              }),
-              cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target`, {
-                name: appendToTemplate(namePrefix, [`${bag.Name}-fsn${obj.port}`]),
-                port: obj.port,
-                protocol: "TCP",
-                vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-                target_type: "ip"
-              })
-            ])
+            ...portsToOpen.flatMap((obj) => {
+              ecsLoadBalancers.push({
+                target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target.arn`),
+                container_name: containerName,
+                container_port: obj.port
+              });
+              return [
+                cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener`, {
+                  load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
+                  port: obj.port,
+                  //listeners attaches to network load balancers must be TCP
+                  protocol: "TCP",
+                  default_action: asBlock([{
+                    type: "forward",
+                    target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target.arn`)
+                  }])
+                }),
+                cloudResource("aws_lb_target_group", `aws_fargate_service_${bag.Name}_net_${obj.port}_lb_listener_target`, {
+                  name: appendToTemplate(namePrefix, [`${bag.Name}-fsn${obj.port}`]),
+                  port: obj.port,
+                  protocol: "TCP",
+                  vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
+                  target_type: "ip"
+                })
+              ];
+            })
           );
         }
       }
@@ -1147,18 +1262,31 @@
         })
       );
     }
+    if (ecsLoadBalancers.length !== 0) {
+      ecsService.load_balancer = asBlock(ecsLoadBalancers);
+    }
     databags.push(
       cloudData("aws_availability_zones", "current", {}),
       cloudResource("aws_ecs_cluster", `${bag.Name}_fargate_cluster`, {
         name: appendToTemplate(namePrefix, [`${bag.Name}-fs-cluster`])
       }),
+      traversalTransform(`aws_fargate_service_transforms`, {
+        [`aws_fargate_service.${bag.Name}.ecs_cluster`]: `aws_ecs_cluster.${bag.Name}_fargate_cluster`,
+        [`aws_fargate_service.${bag.Name}.ecs_service`]: `aws_ecs_service.${bag.Name}_fargate_service`
+      }),
+      cloudOutput("", `aws_fargate_service_${bag.Name}_cluster`, {
+        value: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.name`)
+      }),
       cloudResource("aws_ecs_service", `${bag.Name}_fargate_service`, ecsService),
+      cloudOutput("", `aws_fargate_service_${bag.Name}_service`, {
+        value: asTraversal(`aws_ecs_service.${bag.Name}_fargate_service.name`)
+      }),
       cloudResource("aws_cloudwatch_log_group", `${bag.Name}_fargate_task_logs`, {
         name: appendToTemplate(asSyntax("/ecs/"), [namePrefix, bag.Name]),
         retention_in_days: block.logs_retention_days || 30
       }),
       cloudResource("aws_ecs_task_definition", `${bag.Name}_fargate_task_def`, {
-        family: appendToTemplate(namePrefix, [`${bag.Name}-fs-task-def`]),
+        family: containerName,
         cpu,
         memory,
         network_mode: "awsvpc",
@@ -1170,7 +1298,7 @@
           //that's an array of arrays cause we're json marshalling a list of objects
           [[
             {
-              name: appendToTemplate(namePrefix, [`${bag.Name}-fs-task-def`]),
+              name: containerName,
               image: imageUrl,
               cpu,
               memory,
@@ -1213,44 +1341,51 @@
     const dotContainerImage = compileBlockParam(block, "container_image");
     const hasProvidedImage = !!(block.image || dotContainerImage.image);
     const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
-    let databags = [];
+    let steps = [];
+    if (!container.terraform_execute_output?.default_apply) {
+      return { steps };
+    }
+    const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
+    const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
     if (hasProvidedImage && shouldCopyProvidedImage) {
-      console.log("copying image to ecr", JSON.stringify(container));
-      if (!container.terraform_execute_output?.default_apply) {
-        return [];
-      }
-      const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
-      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
       const providedImage = asStr(block.image || dotContainerImage.image);
       let loginCommand = "";
       if (!block.repository_url) {
         loginCommand = `RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}`;
       }
-      databags.push({
-        Type: "buildkit_run_in_container",
-        Name: `${bag.Name}_aws_fargate_service_image_copy`,
-        Value: {
-          display_name: `Image copy - aws_fargate_service.${bag.Name}`,
-          no_cache: true,
-          dockerfile: `
-                    FROM docker
-
-                    RUN apk add curl && curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &&                         unzip awscliv2.zip &&                         ./aws/install
-
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker pull ${providedImage}
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag ${providedImage} ${imageUrl}
-                    ${loginCommand}
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}`
-        }
+      const awsCreds = getAwsCreds();
+      if (!awsCreds) {
+        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
+      }
+      steps.push(() => {
+        const transforms = [{
+          Type: "buildkit_run_in_container",
+          Name: `${bag.Name}_aws_fargate_service_image_copy`,
+          Value: {
+            display_name: `Image copy - aws_fargate_service.${bag.Name}`,
+            no_cache: true,
+            dockerfile: `
+                        FROM amazon/aws-cli:latest
+                            
+                        # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
+                        RUN yum install -y yum-utils &&                             yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                             sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                             yum install docker-ce-cli -y
+    
+                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
+                        ENV AWS_PAGER=""
+    
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker pull ${providedImage}
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag ${providedImage} ${imageUrl}
+                        ${loginCommand}
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}`
+          }
+        }];
+        return { transforms };
       });
     }
     if (!hasProvidedImage) {
-      console.log("building img", JSON.stringify(container));
-      if (!container.terraform_execute_output?.default_apply) {
-        return [];
-      }
-      const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
-      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
       const baseDir = asStr(dotContainerImage.build_from || ".");
       let dockerfileContent = asStr(block.dockerfile || dotContainerImage.dockerfile || throwStatement(`aws_fargate_service.${bag.Name} needs a 'dockerfile' (path or file content) or 'image' property`));
       if (!dockerfileContent.includes("\n")) {
@@ -1262,44 +1397,86 @@
           dockerfileContent = os.file.readFile(dockerfileContent);
         }
       }
+      const dotBuildArgs = compileBlockParam(dotContainerImage, "build_args");
+      const buildArgsStr = Object.entries(dotBuildArgs).map(([name, value]) => `--build-arg ${name}="${asStr(value)}"`).join(" ");
+      const preBuildCmd = asStr(dotContainerImage.pre_build_cmd || "") || "";
+      const buildCmd = asStr(dotContainerImage.build_cmd || "") || `docker build -f __barbe_dockerfile -t ${bag.Name}fsbarbeimg ${buildArgsStr} .`;
+      const tagCmd = asStr(dotContainerImage.tag_cmd || "") || `docker tag ${bag.Name}fsbarbeimg:latest ${imageUrl}:latest`;
+      const loginCmd = asStr(dotContainerImage.login_cmd || "") || `aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}`;
+      const pushCmd = asStr(dotContainerImage.push_cmd || "") || `docker push ${imageUrl}:latest`;
       const awsCreds = getAwsCreds();
       if (!awsCreds) {
         throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
       }
-      databags.push({
-        Type: "buildkit_run_in_container",
-        Name: `${bag.Name}_aws_fargate_service_image_build`,
-        Value: {
-          display_name: `Image build - aws_fargate_service.${bag.Name}`,
-          input_files: {
-            "__barbe_dockerfile": dockerfileContent
-          },
-          dockerfile: `
-                    FROM amazon/aws-cli:latest
-                    
-                    # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
-                    RUN yum install -y yum-utils &&                         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                         sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                         yum install docker-ce-cli -y
-
-                    ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                    ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                    ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-                    ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
-                    ENV AWS_PAGER=""
-
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}
-
-                    COPY --from=src __barbe_dockerfile __barbe_dockerfile
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker build -f __barbe_dockerfile -t barbeimg ${baseDir}
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag barbeimg:latest ${imageUrl}:latest
-                    RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}:latest
-                `
-        }
+      steps.push(() => {
+        const transforms = [{
+          Type: "buildkit_run_in_container",
+          Name: `${bag.Name}_aws_fargate_service_image_build`,
+          Value: {
+            display_name: `Image build - aws_fargate_service.${bag.Name}`,
+            no_cache: true,
+            input_files: {
+              "__barbe_dockerfile": dockerfileContent
+            },
+            dockerfile: `
+                        FROM amazon/aws-cli:latest
+                        
+                        # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
+                        RUN yum install -y yum-utils &&                             yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                             sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                             yum install docker-ce-cli -y
+    
+                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
+                        ENV AWS_PAGER=""
+    
+                        COPY --from=src ./${baseDir} .
+                        COPY --from=src __barbe_dockerfile __barbe_dockerfile
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${preBuildCmd}
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${buildCmd}
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${tagCmd}
+    
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${loginCmd}
+                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${pushCmd}
+                    `
+          }
+        }];
+        return { transforms };
       });
     }
-    return databags;
+    if (!asVal(block.dont_redeploy_on_apply || asSyntax(false))) {
+      const clusterName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_cluster`).value);
+      const serviceName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_service`).value);
+      const awsCreds = getAwsCreds();
+      if (!awsCreds) {
+        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
+      }
+      steps.push(() => {
+        const transforms = [{
+          Type: "buildkit_run_in_container",
+          Name: `aws_fargate_service_${bag.Name}_redeploy`,
+          Value: {
+            no_cache: true,
+            display_name: `Trigger deployment - aws_fargate_service.${bag.Name}`,
+            dockerfile: `
+                        FROM amazon/aws-cli:latest
+    
+                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
+                        ENV AWS_PAGER=""
+    
+                        RUN aws ecs update-service --service ${serviceName} --cluster ${clusterName} --force-new-deployment`
+          }
+        }];
+        return { transforms };
+      });
+    }
+    return { steps };
   }
   function apply() {
-    exportDatabags(iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceApplyIterator).flat());
+    executePipelineGroup(container, iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceApplyIterator).flat());
   }
   switch (barbeLifecycleStep()) {
     case "pre_generate":

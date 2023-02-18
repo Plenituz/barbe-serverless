@@ -382,51 +382,54 @@
   var container = readDatabagContainer();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
   function lambdaRoleStatement(label, namePrefix) {
-    let statements = [
-      {
-        Action: [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream"
-        ],
-        Effect: "Allow",
-        Resource: asTemplate([
-          "arn:",
-          asTraversal("data.aws_partition.current.partition"),
-          ":logs:*:",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":log-group:/aws/lambda/",
-          ...(() => {
-            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
-              return ["*:*"];
-            }
-            return [
-              ...namePrefix.Parts,
-              "*:*"
-            ];
-          })()
-        ])
-      },
-      {
-        Action: "logs:PutLogEvents",
-        Effect: "Allow",
-        Resource: asTemplate([
-          "arn:",
-          asTraversal("data.aws_partition.current.partition"),
-          ":logs:*:",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":log-group:/aws/lambda/",
-          ...(() => {
-            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
-              return ["*:*:*"];
-            }
-            return [
-              ...namePrefix.Parts,
-              "*:*:*"
-            ];
-          })()
-        ])
-      }
-    ];
+    let statements = [];
+    if (AWS_FUNCTION in container) {
+      statements.push(
+        {
+          Action: [
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream"
+          ],
+          Effect: "Allow",
+          Resource: asTemplate([
+            "arn:",
+            asTraversal("data.aws_partition.current.partition"),
+            ":logs:*:",
+            asTraversal("data.aws_caller_identity.current.account_id"),
+            ":log-group:/aws/lambda/",
+            ...(() => {
+              if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                return ["*:*"];
+              }
+              return [
+                ...namePrefix.Parts,
+                "*:*"
+              ];
+            })()
+          ])
+        },
+        {
+          Action: "logs:PutLogEvents",
+          Effect: "Allow",
+          Resource: asTemplate([
+            "arn:",
+            asTraversal("data.aws_partition.current.partition"),
+            ":logs:*:",
+            asTraversal("data.aws_caller_identity.current.account_id"),
+            ":log-group:/aws/lambda/",
+            ...(() => {
+              if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                return ["*:*:*"];
+              }
+              return [
+                ...namePrefix.Parts,
+                "*:*:*"
+              ];
+            })()
+          ])
+        }
+      );
+    }
     if (AWS_DYNAMODB in container) {
       statements.push({
         Action: "dynamodb:*",
@@ -461,6 +464,49 @@
           ])
         ])
       });
+    }
+    if (AWS_FARGATE_SERVICE in container) {
+      statements.push(
+        {
+          Action: "ecr:*",
+          Effect: "Allow",
+          Resource: asTemplate([
+            // arn:aws:ecr:us-east-1:304449630673:repository/universe-ams-ingest-image-repo
+            "arn:",
+            asTraversal("data.aws_partition.current.partition"),
+            ":ecr:*:",
+            asTraversal("data.aws_caller_identity.current.account_id"),
+            ":repository/",
+            namePrefix,
+            "*"
+          ])
+        },
+        {
+          Action: "ecr:GetAuthorizationToken",
+          Effect: "Allow",
+          Resource: "*"
+        },
+        {
+          Action: "logs:PutLogEvents",
+          Effect: "Allow",
+          Resource: asTemplate([
+            "arn:",
+            asTraversal("data.aws_partition.current.partition"),
+            ":logs:*:",
+            asTraversal("data.aws_caller_identity.current.account_id"),
+            ":log-group:/ecs/",
+            ...(() => {
+              if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                return ["*:*:*"];
+              }
+              return [
+                ...namePrefix.Parts,
+                "*:*:*"
+              ];
+            })()
+          ])
+        }
+      );
     }
     if (AWS_FARGATE_TASK in container) {
       statements.push(
