@@ -14,12 +14,13 @@ export type SpiderMonkeyOs = {
     getenv: (key: string) => string | undefined
 }
 
-export type SpiderMonkeyOsFile = { 
-    //Returns a string, unless \"binary\" is passed as the second argument, in which case it returns a Uint8Array.
-    readFile: (filename: string, binary?: 'binary') => string | Uint8Array
-    listDir: (dirname: string) => string[]
+export interface SpiderMonkeyOsFile { 
+    readFile(filename: string): string
+    readFile(filename: string, binary: 'binary'): Uint8Array
+    listDir(dirname: string): string[]
 }
 
 export type SpiderMonkeyOsPath = {
     join: (...paths: string[]) => string
+    isAbsolute: (path: string) => boolean
 }

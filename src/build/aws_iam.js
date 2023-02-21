@@ -381,9 +381,58 @@
   // aws_iam.ts
   var container = readDatabagContainer();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function lambdaRoleStatement(label, namePrefix) {
+  function lambdaRoleStatement(label, namePrefix, assumableBy) {
     let statements = [];
-    if (AWS_FUNCTION in container) {
+    if (AWS_FUNCTION in container || assumableBy.includes("lambda.amazonaws.com") || assumableBy.includes("edgelambda.amazonaws.com")) {
+      if (assumableBy.includes("edgelambda.amazonaws.com")) {
+        statements.push(
+          {
+            Action: [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream"
+            ],
+            Effect: "Allow",
+            Resource: asTemplate([
+              "arn:",
+              asTraversal("data.aws_partition.current.partition"),
+              ":logs:*:",
+              asTraversal("data.aws_caller_identity.current.account_id"),
+              ":log-group:/aws/lambda/",
+              ...(() => {
+                if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                  return ["*:*"];
+                }
+                return [
+                  "*.",
+                  ...namePrefix.Parts,
+                  "*:*"
+                ];
+              })()
+            ])
+          },
+          {
+            Action: "logs:PutLogEvents",
+            Effect: "Allow",
+            Resource: asTemplate([
+              "arn:",
+              asTraversal("data.aws_partition.current.partition"),
+              ":logs:*:",
+              asTraversal("data.aws_caller_identity.current.account_id"),
+              ":log-group:/aws/lambda/",
+              ...(() => {
+                if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                  return ["*:*:*"];
+                }
+                return [
+                  "*.",
+                  ...namePrefix.Parts,
+                  "*:*:*"
+                ];
+              })()
+            ])
+          }
+        );
+      }
       statements.push(
         {
           Action: [
@@ -558,7 +607,7 @@
     const cloudData = cloudResourceFactory("data");
     let principalService = [];
     if (assumableBy) {
-      principalService.push(...asValArrayConst(assumableBy));
+      principalService.push(...asValArrayConst(assumableBy).map(asStr));
     }
     if (AWS_FUNCTION in container) {
       principalService.push("lambda.amazonaws.com");
@@ -604,7 +653,7 @@
         description: "",
         policy: asFuncCall("jsonencode", [{
           Version: "2012-10-17",
-          Statement: lambdaRoleStatement(label, namePrefix)
+          Statement: lambdaRoleStatement(label, namePrefix, principalService)
         }])
       }),
       cloudResource("aws_iam_role_policy_attachment", `${label}_lambda_role_policy_attachment`, {

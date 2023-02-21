@@ -516,6 +516,121 @@
     return __awsCredsCached;
   }
 
+  // ../../anyfront/src/anyfront-lib/consts.ts
+  var BARBE_SLS_VERSION2 = "v0.2.2";
+  var ANYFRONT_VERSION = "v0.2.2";
+  var TERRAFORM_EXECUTE_URL2 = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION2}`;
+  var AWS_IAM_URL = `https://hub.barbe.app/barbe-serverless/aws_iam.js:${BARBE_SLS_VERSION2}`;
+  var AWS_LAMBDA_URL = `https://hub.barbe.app/barbe-serverless/aws_function.js:${BARBE_SLS_VERSION2}`;
+  var GCP_PROJECT_SETUP_URL = `https://hub.barbe.app/anyfront/gcp_project_setup.js:${ANYFRONT_VERSION}`;
+  var AWS_S3_SYNC_URL = `https://hub.barbe.app/anyfront/aws_s3_sync_files.js:${ANYFRONT_VERSION}`;
+  var FRONTEND_BUILD_URL = `https://hub.barbe.app/anyfront/frontend_build.js:${ANYFRONT_VERSION}`;
+  var GCP_CLOUDRUN_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/gcp_cloudrun_static_hosting.js:${ANYFRONT_VERSION}`;
+  var AWS_NEXT_JS_URL = `https://hub.barbe.app/anyfront/aws_next_js.js:${ANYFRONT_VERSION}`;
+  var GCP_NEXT_JS_URL = `https://hub.barbe.app/anyfront/gcp_next_js.js:${ANYFRONT_VERSION}`;
+  var AWS_CLOUDFRONT_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/aws_cloudfront_static_hosting.js:${ANYFRONT_VERSION}`;
+  var STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/static_hosting.js:${ANYFRONT_VERSION}`;
+
+  // ../../anyfront/src/anyfront-lib/pipeline.ts
+  function mergeDatabagContainers(...containers) {
+    let output = {};
+    for (const container2 of containers) {
+      for (const [blockType, block] of Object.entries(container2)) {
+        output[blockType] = output[blockType] || {};
+        for (const [bagName, bag] of Object.entries(block)) {
+          output[blockType][bagName] = output[blockType][bagName] || [];
+          output[blockType][bagName].push(...bag);
+        }
+      }
+    }
+    return output;
+  }
+  function executePipelineGroup(container2, pipelines) {
+    const lifecycleStep = barbeLifecycleStep();
+    const maxStep = pipelines.map((p) => p.steps.length).reduce((a, b) => Math.max(a, b), 0);
+    let previousStepResult = {};
+    let history = [];
+    for (let i = 0; i < maxStep; i++) {
+      let stepResults = {};
+      let stepImports = [];
+      let stepTransforms = [];
+      let stepDatabags = [];
+      let stepNames = [];
+      for (let pipeline2 of pipelines) {
+        if (i >= pipeline2.steps.length) {
+          continue;
+        }
+        const stepMeta = pipeline2.steps[i];
+        if (stepMeta.name) {
+          stepNames.push(stepMeta.name);
+        }
+        if (stepMeta.lifecycleSteps && stepMeta.lifecycleSteps.length > 0) {
+          if (!stepMeta.lifecycleSteps.includes(lifecycleStep)) {
+            console.log(`skipping step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} of pipeline ${pipeline2.name} because lifecycle step is ${lifecycleStep} and step is only for ${stepMeta.lifecycleSteps.join(", ")}`);
+            continue;
+          }
+        }
+        console.log(`running step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} of pipeline ${pipeline2.name}`);
+        console.log(`step ${i} input:`, JSON.stringify(previousStepResult));
+        let stepRequests = stepMeta.f({
+          previousStepResult,
+          history
+        });
+        console.log(`step ${i} requests:`, JSON.stringify(stepRequests));
+        if (!stepRequests) {
+          continue;
+        }
+        if (stepRequests.imports) {
+          stepImports.push(...stepRequests.imports);
+        }
+        if (stepRequests.transforms) {
+          stepTransforms.push(...stepRequests.transforms);
+        }
+        if (stepRequests.databags) {
+          stepDatabags.push(...stepRequests.databags);
+        }
+      }
+      if (stepImports.length > 0) {
+        const importsResults = importComponents(container2, stepImports);
+        stepResults = mergeDatabagContainers(stepResults, importsResults);
+      }
+      if (stepTransforms.length > 0) {
+        const transformResults = applyTransformers(stepTransforms);
+        stepResults = mergeDatabagContainers(stepResults, transformResults);
+      }
+      if (stepDatabags.length > 0) {
+        exportDatabags(stepDatabags);
+      }
+      console.log(`step ${i} output:`, JSON.stringify(stepResults));
+      history.push({
+        databags: stepResults,
+        stepNames
+      });
+      previousStepResult = stepResults;
+    }
+  }
+  function step(f, params) {
+    return {
+      ...params,
+      f
+    };
+  }
+  function pipeline(steps, params) {
+    return {
+      ...params,
+      steps,
+      pushWithParams(params2, f) {
+        this.steps.push(step(f, params2));
+      },
+      push(f) {
+        this.steps.push(step(f));
+      },
+      merge(...steps2) {
+        this.steps.push(...steps2);
+      }
+    };
+  }
+
   // ../../anyfront/src/anyfront-lib/lib.ts
   function guessAwsDnsZoneBasedOnDomainName(domainName) {
     if (!domainName) {
@@ -617,66 +732,6 @@
     return { certArn, certRef, databags };
   }
 
-  // ../../anyfront/src/anyfront-lib/pipeline.ts
-  function mergeDatabagContainers(...containers) {
-    let output = {};
-    for (const container2 of containers) {
-      for (const [blockType, block] of Object.entries(container2)) {
-        output[blockType] = output[blockType] || {};
-        for (const [bagName, bag] of Object.entries(block)) {
-          output[blockType][bagName] = output[blockType][bagName] || [];
-          output[blockType][bagName].push(...bag);
-        }
-      }
-    }
-    return output;
-  }
-  function executePipelineGroup(container2, pipelines) {
-    let maxStep = pipelines.map((p) => p.steps.length).reduce((a, b) => Math.max(a, b), 0);
-    let previousStepResult = {};
-    let history = [];
-    for (let i = 0; i < maxStep; i++) {
-      let stepResults = {};
-      let stepImports = [];
-      let stepTransforms = [];
-      let stepDatabags = [];
-      for (let pipeline of pipelines) {
-        if (i >= pipeline.steps.length) {
-          continue;
-        }
-        let stepRequests = pipeline.steps[i]({
-          previousStepResult,
-          history
-        });
-        if (!stepRequests) {
-          continue;
-        }
-        if (stepRequests.imports) {
-          stepImports.push(...stepRequests.imports);
-        }
-        if (stepRequests.transforms) {
-          stepTransforms.push(...stepRequests.transforms);
-        }
-        if (stepRequests.databags) {
-          stepDatabags.push(...stepRequests.databags);
-        }
-      }
-      if (stepImports.length > 0) {
-        const importsResults = importComponents(container2, stepImports);
-        stepResults = mergeDatabagContainers(stepResults, importsResults);
-      }
-      if (stepTransforms.length > 0) {
-        const transformResults = applyTransformers(stepTransforms);
-        stepResults = mergeDatabagContainers(stepResults, transformResults);
-      }
-      if (stepDatabags.length > 0) {
-        exportDatabags(stepDatabags);
-      }
-      history.push(previousStepResult);
-      previousStepResult = stepResults;
-    }
-  }
-
   // aws_fargate_service.ts
   var container = readDatabagContainer();
   function awsFargateServiceGenerateIterator(bag) {
@@ -684,8 +739,6 @@
       return { databags: [], imports: [] };
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResourceId = block.cloudresource_id ? asStr(block.cloudresource_id) : void 0;
-    const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : void 0;
     const cloudResource = preConfCloudResourceFactory(block, "resource");
     const cloudData = preConfCloudResourceFactory(block, "data");
     const cloudOutput = preConfCloudResourceFactory(block, "output");
@@ -728,6 +781,7 @@
     let executionRole;
     let imageUrl;
     let securityGroupId;
+    let lbHealthCheckBlock;
     let databags = [];
     let imports = [{
       url: AWS_NETWORK_URL,
@@ -966,6 +1020,9 @@
       const defineAccessLogsResources = asVal(dotLoadBalancer.enable_access_logs || asSyntax(false)) || !!dotAutoScaling.access_logs;
       const dotAccessLogs = compileBlockParam(dotLoadBalancer, "access_logs");
       const portMappingLoadBalancer = asValArrayConst(dotLoadBalancer.port_mapping || asSyntax([]));
+      const dotHealthCheck = compileBlockParam(dotLoadBalancer, "health_check");
+      const loadBalancerType = asStr(dotLoadBalancer.type || "application");
+      const internal = asVal(dotLoadBalancer.internal || asSyntax(false));
       const portsToOpenLoadBalancer = uniq(portMappingLoadBalancer.map((portMapping2, i) => {
         if (!portMapping2.target_port) {
           throw new Error(`'target_port' is required for aws_fargate_service.${bag.Name}.load_balancer.port_mapping[${i}]`);
@@ -983,8 +1040,19 @@
           protocol: asStr(portMapping2.protocol || "HTTP").toUpperCase()
         };
       }), (x) => `${x.target_port}-${x.load_balancer_port}-${x.protocol}`);
-      const loadBalancerType = asStr(dotLoadBalancer.type || "application");
-      const internal = asVal(dotLoadBalancer.internal || asSyntax(false));
+      let healthCheckBlock;
+      if (dotLoadBalancer.health_check) {
+        healthCheckBlock = asBlock([{
+          enabled: dotHealthCheck.enabled || true,
+          healthy_threshold: dotHealthCheck.healthy_threshold,
+          unhealthy_threshold: dotHealthCheck.unhealthy_threshold,
+          timeout: dotHealthCheck.timeout,
+          interval: dotHealthCheck.interval,
+          matcher: dotHealthCheck.matcher || "200-399",
+          // '/healthCheck' is the same route that route53 health checks use
+          path: dotHealthCheck.path || "/healthCheck"
+        }]);
+      }
       databags.push(
         cloudResource("aws_security_group", `aws_fargate_service_${bag.Name}_lb_secgr`, {
           name: appendToTemplate(namePrefix, [`${bag.Name}-fsn-sg`]),
@@ -1037,7 +1105,8 @@
               port: obj.target_port,
               protocol: asLbProtocol(obj.protocol),
               vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-              target_type: "ip"
+              target_type: "ip",
+              health_check: healthCheckBlock
             })
           ];
         })
@@ -1086,7 +1155,8 @@
               port: portsToOpen[0].port,
               protocol: asLbProtocol(portsToOpen[0].protocol),
               vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-              target_type: "ip"
+              target_type: "ip",
+              health_check: healthCheckBlock
             })
           );
           if (enableHttps) {
@@ -1132,7 +1202,8 @@
                 port: 80,
                 protocol: "HTTP",
                 vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-                target_type: "ip"
+                target_type: "ip",
+                health_check: healthCheckBlock
               })
             );
           }
@@ -1178,7 +1249,8 @@
                 port: 443,
                 protocol: "HTTPS",
                 vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-                target_type: "ip"
+                target_type: "ip",
+                health_check: healthCheckBlock
               })
             );
           }
@@ -1272,7 +1344,8 @@
       }),
       traversalTransform(`aws_fargate_service_transforms`, {
         [`aws_fargate_service.${bag.Name}.ecs_cluster`]: `aws_ecs_cluster.${bag.Name}_fargate_cluster`,
-        [`aws_fargate_service.${bag.Name}.ecs_service`]: `aws_ecs_service.${bag.Name}_fargate_service`
+        [`aws_fargate_service.${bag.Name}.ecs_service`]: `aws_ecs_service.${bag.Name}_fargate_service`,
+        [`aws_fargate_service.${bag.Name}.load_balancer`]: `aws_lb.${bag.Name}_fargate_lb`
       }),
       cloudOutput("", `aws_fargate_service_${bag.Name}_cluster`, {
         value: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.name`)
@@ -1336,14 +1409,14 @@
     exportDatabags(importComponents(container, g.map((x) => x.imports).flat()));
   }
   function awsFargateServiceApplyIterator(bag) {
-    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    const [block, _] = applyDefaults(container, bag.Value);
     const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || "us-east-1");
     const dotContainerImage = compileBlockParam(block, "container_image");
     const hasProvidedImage = !!(block.image || dotContainerImage.image);
     const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
-    let steps = [];
+    let pipe = pipeline([]);
     if (!container.terraform_execute_output?.default_apply) {
-      return { steps };
+      return pipeline([]);
     }
     const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
     const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
@@ -1357,7 +1430,7 @@
       if (!awsCreds) {
         throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
       }
-      steps.push(() => {
+      pipe.push(() => {
         const transforms = [{
           Type: "buildkit_run_in_container",
           Name: `${bag.Name}_aws_fargate_service_image_copy`,
@@ -1408,7 +1481,7 @@
       if (!awsCreds) {
         throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
       }
-      steps.push(() => {
+      pipe.push(() => {
         const transforms = [{
           Type: "buildkit_run_in_container",
           Name: `${bag.Name}_aws_fargate_service_image_build`,
@@ -1429,6 +1502,8 @@
                         ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
                         ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
                         ENV AWS_PAGER=""
+                        # this is in case people want to overrid the docker commands
+                        ENV ECR_REPOSITORY="${imageUrl}"
     
                         COPY --from=src ./${baseDir} .
                         COPY --from=src __barbe_dockerfile __barbe_dockerfile
@@ -1451,7 +1526,7 @@
       if (!awsCreds) {
         throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
       }
-      steps.push(() => {
+      pipe.push(() => {
         const transforms = [{
           Type: "buildkit_run_in_container",
           Name: `aws_fargate_service_${bag.Name}_redeploy`,
@@ -1473,7 +1548,7 @@
         return { transforms };
       });
     }
-    return { steps };
+    return pipe;
   }
   function apply() {
     executePipelineGroup(container, iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceApplyIterator).flat());

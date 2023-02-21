@@ -95,11 +95,11 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
 
     const awsCreds = getAwsCreds()
     const gcpToken = getGcpToken(true)
-    const dir = asStr(block.dir)
     let vars = ''
     if(block.variable_values) {
         vars = asValArrayConst(block.variable_values).map((pair) => `-var="${asStr(pair.key)}=${asStr(pair.value)}"`).join(' ')
     }
+    console.log('template_json', asStr(block.template_json))
 
     return [{
         Type: 'buildkit_run_in_container',

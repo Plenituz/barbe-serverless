@@ -637,7 +637,7 @@ export type LabeledBlockCreator = () => {
     labels: string[]
 }
 
-export function asBlock(arr: (LabeledBlockCreator | { [key: string]: any })[]) {
+export function asBlock(arr: (LabeledBlockCreator | { [key: string]: any })[]): SyntaxToken {
     return {
         Type: "array_const",
         Meta: { IsBlock: true },
@@ -856,6 +856,18 @@ export function statFile(fileName: string): RpcResponse<FileStat> {
     });
 }
 
+export function dirname(path: string): string {
+    const parts = path.split("/");
+    if (parts.length === 1) {
+        return ".";
+    } else if (parts.length === 2 && parts[0] === "") {
+        return "/";
+    } else {
+        parts.pop();
+        return parts.join("/");
+    }
+}
+
 export function throwStatement(message: string): never {
     throw new Error(message)
 }
@@ -871,7 +883,7 @@ export function onlyRunForLifecycleSteps(steps: string[]) {
     }
 }
 
-type LifecycleStep = 'pre_generate' |
+export type LifecycleStep = 'pre_generate' |
     'generate' |
     'post_generate' |
     'pre_do' |
@@ -885,14 +897,18 @@ type LifecycleStep = 'pre_generate' |
 
 //this is the current step being run, even if the user is running 'barbe apply', the step might be 'generate'
 export function barbeLifecycleStep(): LifecycleStep {
-    return os.getenv("BARBE_LIFECYCLE_STEP")!;
+    return os.getenv("BARBE_LIFECYCLE_STEP") as LifecycleStep;
 }
+
+export const allGenerateSteps: LifecycleStep[] = ['pre_generate', 'generate', 'post_generate'];
+export const allApplySteps: LifecycleStep[] = ['pre_do', 'pre_apply', 'apply', 'post_apply', 'post_do'];
+export const allDestroySteps: LifecycleStep[] = ['pre_do', 'pre_destroy', 'destroy', 'post_destroy', 'post_do'];
 
 type Command = 'generate' | 'apply' | 'destroy'
 //this is the command that barbe is 'aiming for'
 //meaning even if we're in the 'generate' lifecycle step, the command might be 'apply'
 export function barbeCommand(): Command {
-    return os.getenv("BARBE_COMMAND")!;
+    return os.getenv("BARBE_COMMAND") as Command;
 }
 
 export function barbeOutputDir(): string {
