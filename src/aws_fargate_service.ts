@@ -1,12 +1,11 @@
-import { asBinaryOp, asStr, asSyntax, asTemplate, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, ImportComponentInput, importComponents, statFile, throwStatement, barbeLifecycleStep, asTraversal } from './barbe-std/utils';
-import { AWS_FARGATE_SERVICE, AWS_DYNAMODB, AWS_S3, AWS_NETWORK_URL, AWS_NETWORK } from './barbe-sls-lib/consts';
+import { asStr, asSyntax, asTemplate, asVal, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, ImportComponentInput, importComponents, statFile, throwStatement, barbeLifecycleStep, asTraversal } from './barbe-std/utils';
+import { AWS_FARGATE_SERVICE, AWS_NETWORK_URL, AWS_NETWORK } from './barbe-sls-lib/consts';
 import { applyDefaults, preConfCloudResourceFactory, preConfTraversalTransform, compileBlockParam, DatabagObjVal, getAwsCreds } from './barbe-sls-lib/lib';
-import { appendToTemplate, SyntaxToken, asTraversal, asFuncCall, appendToTraversal, asValArrayConst, asBlock, uniq } from './barbe-std/utils';
+import { appendToTemplate, SyntaxToken, asFuncCall, asValArrayConst, asBlock, uniq } from './barbe-std/utils';
 import { DBAndImport } from '../../anyfront/src/anyfront-lib/lib';
 import { domainBlockResources } from './barbe-sls-lib/helpers';
-import { isFailure, isSuccess } from './barbe-std/rpc';
-import { Pipeline, Step, executePipelineGroup } from '../../anyfront/src/anyfront-lib/pipeline';
-import { FRONTEND_BUILD } from '../../anyfront/src/anyfront-lib/consts';
+import { isSuccess } from './barbe-std/rpc';
+import { Pipeline, executePipelineGroup, pipeline } from '../../anyfront/src/anyfront-lib/pipeline';
 
 const container = readDatabagContainer()
 
@@ -15,8 +14,6 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
         return { databags: [], imports: [] }
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value!);
-    const cloudResourceId = block.cloudresource_id ? asStr(block.cloudresource_id) : undefined
-    const cloudResourceDir = block.cloudresource_dir ? asStr(block.cloudresource_dir) : undefined
     const cloudResource = preConfCloudResourceFactory(block, 'resource')
     const cloudData = preConfCloudResourceFactory(block, 'data')
     const cloudOutput = preConfCloudResourceFactory(block, 'output')
@@ -63,6 +60,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
     let executionRole: SyntaxToken
     let imageUrl: SyntaxToken
     let securityGroupId: SyntaxToken
+    let lbHealthCheckBlock: SyntaxToken
     let databags: SugarCoatedDatabag[] = []
     let imports: ImportComponentInput[] = [{
         url: AWS_NETWORK_URL,
@@ -314,6 +312,9 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
         const defineAccessLogsResources = asVal(dotLoadBalancer.enable_access_logs || asSyntax(false)) || !!dotAutoScaling.access_logs
         const dotAccessLogs = compileBlockParam(dotLoadBalancer, 'access_logs')
         const portMappingLoadBalancer: DatabagObjVal[] = asValArrayConst(dotLoadBalancer.port_mapping || asSyntax([]))
+        const dotHealthCheck = compileBlockParam(dotLoadBalancer, 'health_check')
+        const loadBalancerType = asStr(dotLoadBalancer.type || 'application')
+        const internal = asVal(dotLoadBalancer.internal || asSyntax(false))
         //TODO if there is only one open port on the container, and it's an application load balancer, route 80 and 443 to it
         const portsToOpenLoadBalancer = uniq(portMappingLoadBalancer.map((portMapping, i) => {
             //TODO if target port is not open on the container, throw error
@@ -334,8 +335,21 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
             }
         }), x => `${x.target_port}-${x.load_balancer_port}-${x.protocol}`)
 
-        const loadBalancerType = asStr(dotLoadBalancer.type || 'application')
-        const internal = asVal(dotLoadBalancer.internal || asSyntax(false))
+        let healthCheckBlock: SyntaxToken | undefined
+        if(dotLoadBalancer.health_check) {
+            healthCheckBlock = asBlock([{
+                enabled : dotHealthCheck.enabled || true,
+                healthy_threshold: dotHealthCheck.healthy_threshold,
+                unhealthy_threshold: dotHealthCheck.unhealthy_threshold,
+                timeout: dotHealthCheck.timeout,
+                interval: dotHealthCheck.interval,
+                matcher: dotHealthCheck.matcher || '200-399',
+                // '/healthCheck' is the same route that route53 health checks use
+                path: dotHealthCheck.path || '/healthCheck',
+            }])
+        }
+
+
         databags.push(
             cloudResource('aws_security_group', `aws_fargate_service_${bag.Name}_lb_secgr`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-fsn-sg`]),
@@ -390,6 +404,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                         protocol: asLbProtocol(obj.protocol),
                         vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                         target_type: 'ip',
+                        health_check: healthCheckBlock
                     })
                 ]
             })
@@ -442,6 +457,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                         protocol: asLbProtocol(portsToOpen[0].protocol),
                         vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                         target_type: 'ip',
+                        health_check: healthCheckBlock
                     })
                 )
                 if(enableHttps) {
@@ -489,6 +505,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                             protocol: 'HTTP',
                             vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                             target_type: 'ip',
+                            health_check: healthCheckBlock
                         })
                     )
                 }
@@ -537,6 +554,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                             protocol: 'HTTPS',
                             vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                             target_type: 'ip',
+                            health_check: healthCheckBlock
                         })
                     )
                 }
@@ -636,6 +654,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
         traversalTransform(`aws_fargate_service_transforms`, {
             [`aws_fargate_service.${bag.Name}.ecs_cluster`]: `aws_ecs_cluster.${bag.Name}_fargate_cluster`,
             [`aws_fargate_service.${bag.Name}.ecs_service`]: `aws_ecs_service.${bag.Name}_fargate_service`,
+            [`aws_fargate_service.${bag.Name}.load_balancer`]: `aws_lb.${bag.Name}_fargate_lb`,
         }),
         cloudOutput('', `aws_fargate_service_${bag.Name}_cluster`, {
             value: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.name`),
@@ -701,15 +720,15 @@ function generate() {
 }
 
 function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
-    const [block, namePrefix] = applyDefaults(container, bag.Value!);
+    const [block, _] = applyDefaults(container, bag.Value!);
     const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || 'us-east-1')
     const dotContainerImage = compileBlockParam(block, 'container_image')
     const hasProvidedImage = !!(block.image || dotContainerImage.image)
     const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true))
-    let steps: Step[] = []
+    let pipe = pipeline([])
 
     if(!container.terraform_execute_output?.default_apply) {
-        return { steps }
+        return pipeline([])
     }
     const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value!)
     const imageUrl = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value)
@@ -728,7 +747,7 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
             throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`)
         }
         //TODO if the task ends up in a public subnet, we dont need to copy the image by default, unless it is explicitly requested to be copied?
-        steps.push(() => {
+        pipe.push(() => {
             const transforms = [{
                 Type: 'buildkit_run_in_container',
                 Name: `${bag.Name}_aws_fargate_service_image_copy`,
@@ -785,7 +804,7 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
         if(!awsCreds) {
             throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`)
         }
-        steps.push(() => {
+        pipe.push(() => {
             const transforms = [{
                 Type: 'buildkit_run_in_container',
                 Name: `${bag.Name}_aws_fargate_service_image_build`,
@@ -809,6 +828,8 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
                         ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
                         ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || 'us-east-1')}"
                         ENV AWS_PAGER=""
+                        # this is in case people want to overrid the docker commands
+                        ENV ECR_REPOSITORY="${imageUrl}"
     
                         COPY --from=src ./${baseDir} .
                         COPY --from=src __barbe_dockerfile __barbe_dockerfile
@@ -832,7 +853,7 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
             throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`)
         }
         // we do this manually here instead of relying on TF or ECS to do it because otherwise the image build might be longer than the redeployment and then be ignored until the next deployment
-        steps.push(() => {
+        pipe.push(() => {
             const transforms = [{
                 Type: 'buildkit_run_in_container',
                 Name: `aws_fargate_service_${bag.Name}_redeploy`,
@@ -854,7 +875,7 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
             return { transforms }
         })
     }
-    return { steps }
+    return pipe
 }
 
 function apply() {
