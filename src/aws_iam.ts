@@ -5,9 +5,59 @@ import { appendToTemplate, Databag, exportDatabags, iterateBlocks, readDatabagCo
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
 
-function lambdaRoleStatement(label: string, namePrefix: SyntaxToken) {
+function lambdaRoleStatement(label: string, namePrefix: SyntaxToken, assumableBy: string[]) {
     let statements: any[] = []
-    if(AWS_FUNCTION in container) {
+    if(AWS_FUNCTION in container || assumableBy.includes('lambda.amazonaws.com') || assumableBy.includes('edgelambda.amazonaws.com')) {
+        //TODO option to disable lambda@edge logs permissions for cost savings
+        if(assumableBy.includes('edgelambda.amazonaws.com')) {
+            statements.push(
+                {
+                    Action: [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                    ],
+                    Effect: "Allow",
+                    Resource: asTemplate([
+                        'arn:',
+                        asTraversal('data.aws_partition.current.partition'),
+                        ':logs:*:',
+                        asTraversal('data.aws_caller_identity.current.account_id'),
+                        ':log-group:/aws/lambda/',
+                        ...((): any[] => {
+                            if(!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                                return ["*:*"]
+                            }
+                            return [
+                                '*.',
+                                ...namePrefix.Parts,
+                                "*:*"
+                            ]
+                        })()
+                    ])
+                },
+                {
+                    Action: 'logs:PutLogEvents',
+                    Effect: 'Allow',
+                    Resource: asTemplate([
+                        'arn:',
+                        asTraversal('data.aws_partition.current.partition'),
+                        ':logs:*:',
+                        asTraversal('data.aws_caller_identity.current.account_id'),
+                        ':log-group:/aws/lambda/',
+                        ...((): any[] => {
+                            if (!namePrefix.Parts || namePrefix.Parts.length === 0) {
+                                return ["*:*:*"]
+                            }
+                            return [
+                                '*.',
+                                ...namePrefix.Parts,
+                                "*:*:*"
+                            ]
+                        })()
+                    ])
+                }
+            )
+        }
         statements.push(
             {
                 Action: [
@@ -187,9 +237,9 @@ function defineRole(params: {
     const cloudResource = cloudResourceFactory('resource')
     const cloudData = cloudResourceFactory('data')
 
-    let principalService: (SyntaxToken | string)[] = []
+    let principalService: string[] = []
     if(assumableBy) {
-        principalService.push(...asValArrayConst(assumableBy))
+        principalService.push(...asValArrayConst(assumableBy).map(asStr))
     }
     if (AWS_FUNCTION in container) {
         principalService.push('lambda.amazonaws.com')
@@ -236,7 +286,7 @@ function defineRole(params: {
             description: '',
             policy: asFuncCall('jsonencode', [{
                 Version: "2012-10-17",
-                Statement: lambdaRoleStatement(label, namePrefix)
+                Statement: lambdaRoleStatement(label, namePrefix, principalService)
             }])
         }),
         cloudResource('aws_iam_role_policy_attachment', `${label}_lambda_role_policy_attachment`, {
