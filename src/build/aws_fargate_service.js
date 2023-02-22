@@ -528,6 +528,7 @@
   var GCP_CLOUDRUN_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/gcp_cloudrun_static_hosting.js:${ANYFRONT_VERSION}`;
   var AWS_NEXT_JS_URL = `https://hub.barbe.app/anyfront/aws_next_js.js:${ANYFRONT_VERSION}`;
   var GCP_NEXT_JS_URL = `https://hub.barbe.app/anyfront/gcp_next_js.js:${ANYFRONT_VERSION}`;
+  var AWS_SVELTEKIT_URL = `https://hub.barbe.app/anyfront/aws_sveltekit.js:${ANYFRONT_VERSION}`;
   var AWS_CLOUDFRONT_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/aws_cloudfront_static_hosting.js:${ANYFRONT_VERSION}`;
   var STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/static_hosting.js:${ANYFRONT_VERSION}`;
 
@@ -648,18 +649,43 @@
     }
     return `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
   }
+  function isDomainNameApex(domainName, zoneName) {
+    if (!domainName) {
+      return null;
+    }
+    if (!isSimpleTemplate(domainName)) {
+      return null;
+    }
+    const domainNameStr = asStr(domainName);
+    if (zoneName && isSimpleTemplate(zoneName) && domainNameStr === asStr(zoneName)) {
+      return true;
+    }
+    const parts = domainNameStr.split(".");
+    if (parts.length === 2) {
+      return true;
+    }
+    return false;
+  }
 
   // barbe-sls-lib/helpers.ts
-  function domainBlockResources(dotDomain, domainValue, resourcePrefix, cloudData, cloudResource) {
-    if (!dotDomain.name) {
-      throw new Error("no domain name given");
+  function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource }) {
+    const nameToken = dotDomain.name || dotDomain.names;
+    if (!nameToken) {
+      return null;
+    }
+    let domainNames = [];
+    if (nameToken.Type === "array_const") {
+      domainNames = nameToken.ArrayConst || [];
+    } else {
+      domainNames = [nameToken];
     }
     let certArn;
     let certRef;
-    const acmCertificateResources = (domain) => {
+    const acmCertificateResources = (domains) => {
       return [
         cloudResource("aws_acm_certificate", `${resourcePrefix}_cert`, {
-          domain_name: domain,
+          domain_name: domains[0],
+          subject_alternative_names: domains.slice(1),
           validation_method: "DNS"
         }),
         cloudResource("aws_route53_record", `${resourcePrefix}_validation_record`, {
@@ -694,19 +720,59 @@
         })
       ];
     };
+    let zoneName = dotDomain.zone;
+    if (!zoneName) {
+      zoneName = domainNames.find(guessAwsDnsZoneBasedOnDomainName);
+    }
+    if (!zoneName) {
+      throwStatement("no 'zone' given and could not guess based on domain name");
+    }
     let databags = [];
     databags.push(
       cloudData("aws_route53_zone", `${resourcePrefix}_zone`, {
-        name: dotDomain.zone || guessAwsDnsZoneBasedOnDomainName(dotDomain.name) || throwStatement("no 'zone' given and could not guess based on domain name")
-      }),
-      cloudResource("aws_route53_record", `${resourcePrefix}_domain_record`, {
-        zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
-        name: dotDomain.name,
-        type: "CNAME",
-        ttl: 300,
-        records: [domainValue]
+        name: zoneName
       })
     );
+    const forceAlias = asVal(dotDomain.use_alias || asSyntax(false));
+    for (let i = 0; i < domainNames.length; i++) {
+      const domain = domainNames[i];
+      const isApex = isDomainNameApex(domain, zoneName);
+      if (forceAlias || isApex) {
+        databags.push(
+          cloudResource("aws_route53_record", `${resourcePrefix}_${i}_alias_record`, {
+            zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+            name: domain,
+            type: "A",
+            alias: asBlock([{
+              name: domainValue,
+              zone_id: apexHostedZoneId,
+              evaluate_target_health: false
+            }])
+          }),
+          //when a cloudfront distribution has ipv6 enabled we need 2 alias records, one A for ipv4 and one AAAA for ipv6
+          cloudResource("aws_route53_record", `${resourcePrefix}_${i}_alias_record_ipv6`, {
+            zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+            name: domain,
+            type: "AAAA",
+            alias: asBlock([{
+              name: domainValue,
+              zone_id: apexHostedZoneId,
+              evaluate_target_health: false
+            }])
+          })
+        );
+      } else {
+        databags.push(
+          cloudResource("aws_route53_record", `${resourcePrefix}_${i}_domain_record`, {
+            zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+            name: domain,
+            type: "CNAME",
+            ttl: 300,
+            records: [domainValue]
+          })
+        );
+      }
+    }
     if (!dotDomain.certificate_arn) {
       if (dotDomain.existing_certificate_domain) {
         certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`);
@@ -720,16 +786,22 @@
       } else if (dotDomain.certificate_domain_to_create) {
         certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
         certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`);
-        databags.push(...acmCertificateResources(dotDomain.certificate_domain_to_create));
+        let certsToCreate = [];
+        if (dotDomain.certificate_domain_to_create.Type === "array_const") {
+          certsToCreate = dotDomain.certificate_domain_to_create.ArrayConst || [];
+        } else {
+          certsToCreate = [dotDomain.certificate_domain_to_create];
+        }
+        databags.push(...acmCertificateResources(certsToCreate));
       } else {
         certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`);
         certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`);
-        databags.push(...acmCertificateResources(dotDomain.name));
+        databags.push(...acmCertificateResources(domainNames));
       }
     } else {
       certArn = dotDomain.certificate_arn;
     }
-    return { certArn, certRef, databags };
+    return { certArn, certRef, databags, domainNames };
   }
 
   // aws_fargate_service.ts
@@ -1161,15 +1233,25 @@
           );
           if (enableHttps) {
             const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
-            const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
+            const domainBlock = awsDomainBlockResources({
+              dotDomain,
+              domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+              resourcePrefix: `aws_fargate_service_${bag.Name}`,
+              apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+              cloudData,
+              cloudResource
+            });
+            if (!domainBlock) {
+              throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`);
+            }
             databags.push(
-              ...domainResources,
+              ...domainBlock.databags,
               cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_lonely_https_lb_listener`, {
-                depends_on: certRef ? [certRef] : null,
+                depends_on: domainBlock.certRef ? [domainBlock.certRef] : null,
                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                 port: 443,
                 protocol: "HTTPS",
-                certificate_arn: certArn,
+                certificate_arn: domainBlock.certArn,
                 default_action: asBlock([{
                   type: "forward",
                   target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target.arn`)
@@ -1210,15 +1292,25 @@
           if (fourFourThreeIsOpen) {
             if (enableHttps) {
               const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
-              const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource);
+              const domainBlock = awsDomainBlockResources({
+                dotDomain,
+                domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+                resourcePrefix: `aws_fargate_service_${bag.Name}`,
+                apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+                cloudData,
+                cloudResource
+              });
+              if (!domainBlock) {
+                throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`);
+              }
               databags.push(
-                ...domainResources,
+                ...domainBlock.databags,
                 cloudResource("aws_lb_listener", `aws_fargate_service_${bag.Name}_https_lb_listener`, {
-                  depends_on: certRef ? [certRef] : null,
+                  depends_on: domainBlock.certRef ? [domainBlock.certRef] : null,
                   load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                   port: 443,
                   protocol: "HTTPS",
-                  certificate_arn: certArn,
+                  certificate_arn: domainBlock.certArn,
                   default_action: asBlock([{
                     type: "forward",
                     target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_https_lb_listener_target.arn`)

@@ -1,7 +1,7 @@
 // this is for functions that are pretty specific to components but could be shared between components
 
-import { guessAwsDnsZoneBasedOnDomainName } from '../../../anyfront/src/anyfront-lib/lib';
-import { accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken, visitTokens, findInBlocks, SugarCoatedDatabag, asTraversal, asSyntax, throwStatement } from '../barbe-std/utils';
+import { guessAwsDnsZoneBasedOnDomainName, isDomainNameApex } from '../../../anyfront/src/anyfront-lib/lib';
+import { accumulateTokens, DatabagContainer, iterateAllBlocks, SyntaxToken, visitTokens, findInBlocks, SugarCoatedDatabag, asTraversal, asSyntax, throwStatement, asVal, asBlock } from '../barbe-std/utils';
 import { PreConfFactory, DatabagObjVal } from './lib';
 
 //collect all the regions referenced as `aws.<region>`
@@ -57,16 +57,41 @@ dotDomain: {
 }
 certRef is only returned if the ACM certificate is created by this function
 */
-export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: SyntaxToken, resourcePrefix: string, cloudData: PreConfFactory, cloudResource: PreConfFactory): { certArn: SyntaxToken, certRef?: SyntaxToken, databags: SugarCoatedDatabag[] } {
-    if(!dotDomain.name) {
-        throw new Error('no domain name given')
+type awsDomainBlockResourcesInput = {
+    dotDomain: DatabagObjVal
+    domainValue: SyntaxToken
+    resourcePrefix: string
+    apexHostedZoneId: SyntaxToken
+    cloudData: PreConfFactory
+    cloudResource: PreConfFactory
+}
+type awsDomainBlockResourcesOutput = {
+    certArn: SyntaxToken
+    // certRef is only returned if the ACM certificate is created by this function
+    certRef?: SyntaxToken
+    databags: SugarCoatedDatabag[]
+    // the inputed dotDomain.name or dotDomain.names as an array
+    domainNames: SyntaxToken[]
+}
+export function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource }: awsDomainBlockResourcesInput): awsDomainBlockResourcesOutput | null {
+    const nameToken = dotDomain.name || dotDomain.names
+    if(!nameToken) {
+        return null
     }
+    let domainNames: SyntaxToken[] = []
+    if(nameToken.Type === 'array_const') {
+        domainNames = nameToken.ArrayConst || []
+    } else {
+        domainNames = [nameToken]
+    }
+
     let certArn: SyntaxToken
-    let certRef: SyntaxToken
-    const acmCertificateResources = (domain: SyntaxToken): SugarCoatedDatabag[] => {
+    let certRef: SyntaxToken | undefined
+    const acmCertificateResources = (domains: SyntaxToken[]): SugarCoatedDatabag[] => {
         return [
             cloudResource('aws_acm_certificate', `${resourcePrefix}_cert`, {
-                domain_name: domain,
+                domain_name: domains[0],
+                subject_alternative_names: domains.slice(1),
                 validation_method: 'DNS'
             }),
             cloudResource('aws_route53_record', `${resourcePrefix}_validation_record`, {
@@ -102,19 +127,60 @@ export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: Synt
         ]
     }
 
+    let zoneName = dotDomain.zone
+    if(!zoneName) {
+        zoneName = domainNames.find(guessAwsDnsZoneBasedOnDomainName)
+    }
+    if(!zoneName) {
+        throwStatement('no \'zone\' given and could not guess based on domain name')
+    }
     let databags: SugarCoatedDatabag[] = []
     databags.push(
         cloudData('aws_route53_zone', `${resourcePrefix}_zone`, {
-            name: dotDomain.zone || guessAwsDnsZoneBasedOnDomainName(dotDomain.name) || throwStatement('no \'zone\' given and could not guess based on domain name'),
-        }),
-        cloudResource('aws_route53_record', `${resourcePrefix}_domain_record`, {
-            zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
-            name: dotDomain.name,
-            type: "CNAME",
-            ttl: 300,
-            records: [domainValue]
+            name: zoneName,
         })
     )
+    const forceAlias = asVal(dotDomain.use_alias || asSyntax(false))
+    for(let i = 0; i < domainNames.length; i++) {
+        const domain = domainNames[i]
+        //an apex domain is the root domain of a zone, e.g. example.com's apex is example.com (non apex would be abc.example.com)
+        const isApex = isDomainNameApex(domain, zoneName)
+        if(forceAlias || isApex) {
+            databags.push(
+                cloudResource('aws_route53_record', `${resourcePrefix}_${i}_alias_record`, {
+                    zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+                    name: domain,
+                    type: "A",
+                    alias: asBlock([{
+                        name: domainValue,
+                        zone_id: apexHostedZoneId,
+                        evaluate_target_health: false
+                    }])
+                }),
+                //when a cloudfront distribution has ipv6 enabled we need 2 alias records, one A for ipv4 and one AAAA for ipv6
+                cloudResource('aws_route53_record', `${resourcePrefix}_${i}_alias_record_ipv6`, {
+                    zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+                    name: domain,
+                    type: "AAAA",
+                    alias: asBlock([{
+                        name: domainValue,
+                        zone_id: apexHostedZoneId,
+                        evaluate_target_health: false
+                    }])
+                })
+            )
+        } else {
+            databags.push(
+                cloudResource('aws_route53_record', `${resourcePrefix}_${i}_domain_record`, {
+                    zone_id: asTraversal(`data.aws_route53_zone.${resourcePrefix}_zone.zone_id`),
+                    name: domain,
+                    type: "CNAME",
+                    ttl: 300,
+                    records: [domainValue]
+                })
+            )
+        }
+    }
     if(!dotDomain.certificate_arn) {
         if(dotDomain.existing_certificate_domain) {
             certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`)
@@ -128,14 +194,20 @@ export function domainBlockResources(dotDomain: DatabagObjVal, domainValue: Synt
         } else if(dotDomain.certificate_domain_to_create) {
             certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`)
             certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`)
-            databags.push(...acmCertificateResources(dotDomain.certificate_domain_to_create))
+            let certsToCreate: SyntaxToken[] = []
+            if(dotDomain.certificate_domain_to_create.Type === 'array_const') {
+                certsToCreate = dotDomain.certificate_domain_to_create.ArrayConst || []
+            } else {
+                certsToCreate = [dotDomain.certificate_domain_to_create]
+            }
+            databags.push(...acmCertificateResources(certsToCreate))
         } else {
             certArn = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert.arn`)
             certRef = asTraversal(`aws_acm_certificate.${resourcePrefix}_cert`)
-            databags.push(...acmCertificateResources(dotDomain.name))
+            databags.push(...acmCertificateResources(domainNames))
         }
     } else {
         certArn = dotDomain.certificate_arn
     }
-    return { certArn, certRef, databags }
+    return { certArn, certRef, databags, domainNames }
 }

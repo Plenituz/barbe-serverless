@@ -3,7 +3,7 @@ import { AWS_FARGATE_SERVICE, AWS_NETWORK_URL, AWS_NETWORK } from './barbe-sls-l
 import { applyDefaults, preConfCloudResourceFactory, preConfTraversalTransform, compileBlockParam, DatabagObjVal, getAwsCreds } from './barbe-sls-lib/lib';
 import { appendToTemplate, SyntaxToken, asFuncCall, asValArrayConst, asBlock, uniq } from './barbe-std/utils';
 import { DBAndImport } from '../../anyfront/src/anyfront-lib/lib';
-import { domainBlockResources } from './barbe-sls-lib/helpers';
+import { awsDomainBlockResources } from './barbe-sls-lib/helpers';
 import { isSuccess } from './barbe-std/rpc';
 import { Pipeline, executePipelineGroup, pipeline } from '../../anyfront/src/anyfront-lib/pipeline';
 
@@ -462,15 +462,25 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                 )
                 if(enableHttps) {
                     const dotDomain = compileBlockParam(dotLoadBalancer, 'domain')
-                    const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource)
+                    const domainBlock = awsDomainBlockResources({
+                        dotDomain,
+                        domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+                        resourcePrefix: `aws_fargate_service_${bag.Name}`,
+                        apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+                        cloudData,
+                        cloudResource
+                    })
+                    if(!domainBlock) {
+                        throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`)
+                    }
                     databags.push(
-                        ...domainResources,
+                        ...domainBlock.databags,
                         cloudResource('aws_lb_listener', `aws_fargate_service_${bag.Name}_lonely_https_lb_listener`, {
-                            depends_on: certRef ? [certRef]: null,
+                            depends_on: domainBlock.certRef ? [domainBlock.certRef]: null,
                             load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                             port: 443,
                             protocol: 'HTTPS',
-                            certificate_arn: certArn,
+                            certificate_arn: domainBlock.certArn,
                             default_action: asBlock([{
                                 type: 'forward',
                                 target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_lonely_http_lb_listener_target.arn`)
@@ -514,15 +524,25 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                     // because if https is not enabled on the load balancer then we dont want to map 443 on the load balancer to 443 on the container
                     if(enableHttps) {
                         const dotDomain = compileBlockParam(dotLoadBalancer, 'domain')
-                        const { certArn, certRef, databags: domainResources } = domainBlockResources(dotDomain, asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`), `aws_fargate_service_${bag.Name}`, cloudData, cloudResource)
+                        const domainBlock = awsDomainBlockResources({
+                            dotDomain,
+                            domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+                            resourcePrefix: `aws_fargate_service_${bag.Name}`,
+                            apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+                            cloudData,
+                            cloudResource
+                        })
+                        if(!domainBlock) {
+                            throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`)
+                        }
                         databags.push(
-                            ...domainResources,
+                            ...domainBlock.databags,
                             cloudResource('aws_lb_listener', `aws_fargate_service_${bag.Name}_https_lb_listener`, {
-                                depends_on: certRef ? [certRef]: null,
+                                depends_on: domainBlock.certRef ? [domainBlock.certRef]: null,
                                 load_balancer_arn: asTraversal(`aws_lb.${bag.Name}_fargate_lb.arn`),
                                 port: 443,
                                 protocol: 'HTTPS',
-                                certificate_arn: certArn,
+                                certificate_arn: domainBlock.certArn,
                                 default_action: asBlock([{
                                     type: 'forward',
                                     target_group_arn: asTraversal(`aws_lb_target_group.aws_fargate_service_${bag.Name}_https_lb_listener_target.arn`)

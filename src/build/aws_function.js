@@ -487,7 +487,7 @@
         Name: `${bag.Name}_${cloudResourceId}${cloudResourceDir}_lambda_package`,
         Type: "zipper",
         Value: {
-          output_file: `${cloudResourceDir}/${packageLocation}`,
+          output_file: `${cloudResourceDir ? `${cloudResourceDir}/` : ""}${packageLocation}`,
           file_map: dotPackage.file_map || {},
           include: dotPackage.include || [],
           exclude: dotPackage.exclude || []
