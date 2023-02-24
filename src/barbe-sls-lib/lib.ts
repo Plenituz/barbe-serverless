@@ -33,6 +33,7 @@ export function applyDefaults(container: DatabagContainer, block: SyntaxToken): 
         defaults = compileDefaults(container, '');
     }
     const blockVal = asVal(mergeTokens([defaults, block])) as DatabagObjVal;
+    delete blockVal.name_prefix;
     return [
         blockVal,
         compileNamePrefix(container, block)
