@@ -18,6 +18,7 @@
         "barbe-serverless/terraform_passthrough.js:dev",
         "barbe-serverless/default_terraform.js:dev",
         "barbe-serverless/git_clone.js:dev",
-        "barbe-serverless/aws_fargate_service.js:dev"
+        "barbe-serverless/aws_fargate_service.js:dev",
+        "barbe-serverless/baked_funcs.js:dev"
     ]
 }

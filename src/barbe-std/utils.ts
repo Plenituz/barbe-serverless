@@ -754,6 +754,7 @@ export function exportDatabags(bags: (Databag | SugarCoatedDatabag)[] | DatabagC
     if(bags.length === 0) {
         return;
     }
+    // console.log("exportDatabags", JSON.stringify(bags));
     const resp = barbeRpcCall({
         method: "exportDatabags",
         params: [{

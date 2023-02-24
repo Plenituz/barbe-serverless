@@ -129,7 +129,13 @@ export function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix
 
     let zoneName = dotDomain.zone
     if(!zoneName) {
-        zoneName = domainNames.find(guessAwsDnsZoneBasedOnDomainName)
+        for(const domain of domainNames) {
+            const guessedZone = guessAwsDnsZoneBasedOnDomainName(domain)
+            if(guessedZone) {
+                zoneName = asSyntax(guessedZone)
+                break
+            }
+        }
     }
     if(!zoneName) {
         throwStatement('no \'zone\' given and could not guess based on domain name')

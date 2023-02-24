@@ -23,7 +23,6 @@ function stateStoreIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         //bucket names should be globally unique, adding a hash at the end makes it easier to have a unique name
         bucketName += md5(bucketName).slice(0, 5)
     }
-    
 
     const makeS3Store = (): (Databag | SugarCoatedDatabag)[] => {
         const dotS3 = compileBlockParam(block, 's3')
