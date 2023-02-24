@@ -273,6 +273,7 @@
       quit();
     }
   }
+  var IS_VERBOSE = os.getenv("BARBE_VERBOSE") === "1";
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }

@@ -225,6 +225,7 @@
   function readDatabagContainer() {
     return JSON.parse(os.file.readFile("__barbe_input.json"));
   }
+  var IS_VERBOSE = os.getenv("BARBE_VERBOSE") === "1";
 
   // baked_funcs.ts
   var container = readDatabagContainer();

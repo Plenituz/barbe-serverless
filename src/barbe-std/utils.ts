@@ -896,6 +896,9 @@ export type LifecycleStep = 'pre_generate' |
     'post_destroy' |
     'post_do'
 
+
+export const IS_VERBOSE = os.getenv("BARBE_VERBOSE") === "1"
+
 //this is the current step being run, even if the user is running 'barbe apply', the step might be 'generate'
 export function barbeLifecycleStep(): LifecycleStep {
     return os.getenv("BARBE_LIFECYCLE_STEP") as LifecycleStep;
