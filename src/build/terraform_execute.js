@@ -211,6 +211,8 @@
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }
+  var allApplySteps = ["pre_do", "pre_apply", "apply", "post_apply", "post_do"];
+  var allDestroySteps = ["pre_do", "pre_destroy", "destroy", "post_destroy", "post_do"];
   function barbeOutputDir() {
     return os.getenv("BARBE_OUTPUT_DIR");
   }
@@ -259,7 +261,10 @@
   // terraform_execute.ts
   var container = readDatabagContainer();
   var outputDir = barbeOutputDir();
-  onlyRunForLifecycleSteps(["apply", "destroy"]);
+  onlyRunForLifecycleSteps([
+    ...allApplySteps,
+    ...allDestroySteps
+  ]);
   function removeBarbeOutputPrefix(path) {
     if (path.startsWith(outputDir)) {
       return path.slice(outputDir.length);

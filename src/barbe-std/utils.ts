@@ -829,9 +829,6 @@ export function importComponents(container: DatabagContainer, components: Import
     }
 
     // console.log('barbeImportComponent', JSON.stringify(barbeImportComponent))
-    if(barbeImportComponent.length === 0) {
-        return {};
-    }
     const resp = barbeRpcCall<DatabagContainer>({
         method: "importComponents",
         params: [{

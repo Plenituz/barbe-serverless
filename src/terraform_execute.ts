@@ -1,10 +1,13 @@
 import { TERRAFORM_EMPTY_EXECUTE, TERRAFORM_EXECUTE, TERRAFORM_EXECUTE_GET_OUTPUT } from "./barbe-sls-lib/consts";
-import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir, applyTransformers } from './barbe-std/utils';
+import { asStr, asVal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag, asValArrayConst, barbeOutputDir, applyTransformers, allApplySteps, allDestroySteps } from './barbe-std/utils';
 import { getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
 
 const container = readDatabagContainer()
 const outputDir = barbeOutputDir()
-onlyRunForLifecycleSteps(['apply', 'destroy'])
+onlyRunForLifecycleSteps([
+    ...allApplySteps,
+    ...allDestroySteps
+])
 
 function removeBarbeOutputPrefix(path: string): string {
     if(path.startsWith(outputDir)) {

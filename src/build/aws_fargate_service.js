@@ -342,9 +342,6 @@
         Value: importComponentInput
       });
     }
-    if (barbeImportComponent.length === 0) {
-      return {};
-    }
     const resp = barbeRpcCall({
       method: "importComponents",
       params: [{
@@ -570,13 +567,13 @@
         if (stepMeta.lifecycleSteps && stepMeta.lifecycleSteps.length > 0) {
           if (!stepMeta.lifecycleSteps.includes(lifecycleStep)) {
             if (IS_VERBOSE) {
-              console.log(`skipping step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} of pipeline ${pipeline2.name} because lifecycle step is ${lifecycleStep} and step is only for ${stepMeta.lifecycleSteps.join(", ")}`);
+              console.log(`${pipeline2.name}: skipping step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} (${lifecycleStep} not in [${stepMeta.lifecycleSteps.join(", ")}]`);
             }
             continue;
           }
         }
         if (IS_VERBOSE) {
-          console.log(`running step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} of pipeline ${pipeline2.name}`);
+          console.log(`${pipeline2.name}: running step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""}`);
           console.log(`step ${i} input:`, JSON.stringify(previousStepResult));
         }
         let stepRequests = stepMeta.f({
@@ -584,7 +581,7 @@
           history
         });
         if (IS_VERBOSE) {
-          console.log(`step ${i} requests:`, JSON.stringify(stepRequests));
+          console.log(`${pipeline2.name}: step ${i}${stepMeta.name ? ` (${stepMeta.name})` : ""} requests:`, JSON.stringify(stepRequests));
         }
         if (!stepRequests) {
           continue;
