@@ -286,7 +286,7 @@
   var AWS_FUNCTION = "aws_function";
   var EVENT_DYNAMODB_STREAM = "event_dynamodb_stream";
   var AWS_DYNAMODB = "aws_dynamodb";
-  var BARBE_SLS_VERSION = "v0.2.2";
+  var BARBE_SLS_VERSION = "v0.2.3";
   var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
   var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 

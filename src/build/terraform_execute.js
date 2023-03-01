@@ -3,7 +3,7 @@
   var TERRAFORM_EXECUTE = "terraform_execute";
   var TERRAFORM_EXECUTE_GET_OUTPUT = "terraform_execute_get_output";
   var TERRAFORM_EMPTY_EXECUTE = "terraform_empty_execute";
-  var BARBE_SLS_VERSION = "v0.2.2";
+  var BARBE_SLS_VERSION = "v0.2.3";
   var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
   var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 

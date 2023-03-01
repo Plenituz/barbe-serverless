@@ -15,6 +15,6 @@ export const TERRAFORM_EXECUTE_GET_OUTPUT = 'terraform_execute_get_output'
 export const TERRAFORM_EMPTY_EXECUTE = 'terraform_empty_execute'
 export const GIT_CLONE = 'git_clone'
 
-const BARBE_SLS_VERSION = 'v0.2.2'
+const BARBE_SLS_VERSION = 'v0.2.3'
 export const TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`
 export const AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`
