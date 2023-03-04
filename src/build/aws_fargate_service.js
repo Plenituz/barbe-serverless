@@ -517,7 +517,7 @@
 
   // ../../anyfront/src/anyfront-lib/consts.ts
   var BARBE_SLS_VERSION2 = "v0.2.3";
-  var ANYFRONT_VERSION = "v0.2.3";
+  var ANYFRONT_VERSION = "v0.2.5";
   var TERRAFORM_EXECUTE_URL2 = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION2}`;
   var AWS_IAM_URL = `https://hub.barbe.app/barbe-serverless/aws_iam.js:${BARBE_SLS_VERSION2}`;
   var AWS_LAMBDA_URL = `https://hub.barbe.app/barbe-serverless/aws_function.js:${BARBE_SLS_VERSION2}`;
