@@ -91,7 +91,13 @@ local splitTemplate(tokenOrStr, c) =
 barbe.databags([
     barbe.iterateBlocks(container, "aws_http_api", function(bag)
         local block = barbe.asVal(bag.Value);
-        local labels = barbe.flatten([bag.Name, bag.Labels]);
+        local labels = barbe.flatten([
+            bag.Name,
+            if std.get(bag, "Meta", null) != null then
+                std.get(bag.Meta, "Labels", [])
+            else
+                []
+        ]);
         local name = if std.length(labels) > 0 then labels[0] else "default";
         local blockDefaults = barbe.makeBlockDefault(container, globalDefaults, block);
         local fullBlock = barbe.asVal(barbe.mergeTokens([barbe.asSyntax(blockDefaults), bag.Value]));
@@ -100,6 +106,11 @@ barbe.databags([
 
         local dotAccessLogs = barbe.asVal(barbe.mergeTokens(std.get(fullBlock, "access_logs", barbe.asSyntax([])).ArrayConst));
         local routes = barbe.asValArrayConst(std.get(fullBlock, "route", barbe.asSyntax([])));
+        local routesLabels = [
+            barbe.asVal(std.get(fullBlock, "route", barbe.asSyntax([])))[i].Meta.Labels
+            for i in std.range(0, std.length(routes)-1)
+        ];
+        
         local allEventHttp = barbe.flatten([
             barbe.iterateBlocks(container, "aws_function", function(bag)
                 local other = barbe.asVal(bag.Value);
@@ -182,15 +193,16 @@ barbe.databags([
                         if std.length(allEventHttp) + std.length(routes) > 0 then
                             barbe.asBlock(barbe.flatten([
                                 [
+                                    local route = routes[routeIndex];
                                     local mergedRoute = fullBlock + route;
                                     {
-                                        route_key: barbe.asTraversal("aws_apigatewayv2_route." + name + "_route_" + std.md5(barbe.asValArrayConst(route.labels)[0]) + "_route" + ".route_key"),
+                                        route_key: barbe.asTraversal("aws_apigatewayv2_route." + name + "_route_" + std.md5(routesLabels[routeIndex][0]) + "_route" + ".route_key"),
                                         detailed_metrics_enabled: std.get(route, "detailed_metrics_enabled", null),
                                         logging_level: std.get(route, "logging_level", null),
                                         throttling_burst_limit: std.get(mergedRoute, "throttling_burst_limit", 5000),
                                         throttling_rate_limit: std.get(mergedRoute, "throttling_rate_limit", 10000),
                                     }
-                                    for route in routes
+                                    for routeIndex in std.range(0, std.length(routes)-1)
                                 ],
                                 [
                                     local mergedRoute = fullBlock + tuple.event;
@@ -306,7 +318,8 @@ barbe.databags([
                 [
                     // we use a hash of the route key instead of the index to avoid
                     // problems with the order of the routes in the config file
-                    local routeKey = barbe.asValArrayConst(route.labels)[0];
+                    local route = routes[routeIndex];
+                    local routeKey = routesLabels[routeIndex][0];
                     local i = std.md5(routeKey);
                     [
                         {
@@ -378,7 +391,7 @@ barbe.databags([
                                 {}
                         }
                     ]
-                    for route in routes
+                    for routeIndex in std.range(0, std.length(routes)-1)
                 ]
             else
                 null

@@ -186,6 +186,29 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }))
         )
     }
+    if(block.event_schedule) {
+        let eventSchedules = asValArrayConst(block.event_schedule)
+        databags.push(
+            ...eventSchedules.flatMap((event, i) => [
+                cloudResource('aws_cloudwatch_event_rule', `${bag.Name}_${i}_schedule`, {
+                    name: appendToTemplate(namePrefix, [bag.Name, '-schedule-', i]),
+                    schedule_expression: event.schedule_expression,
+                }),
+                cloudResource('aws_cloudwatch_event_target', `${bag.Name}_${i}_schedule_target`, {
+                    rule: asTraversal(`aws_cloudwatch_event_rule.${bag.Name}_${i}_schedule.name`),
+                    target_id: 'InvokeLambda',
+                    arn: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
+                }),
+                cloudResource('aws_lambda_permission', `${bag.Name}_${i}_schedule_permission`, {
+                    statement_id: 'AllowExecutionFromEventBridge',
+                    action: 'lambda:InvokeFunction',
+                    principal: 'events.amazonaws.com',
+                    function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
+                    source_arn: asTraversal(`aws_cloudwatch_event_rule.${bag.Name}_${i}_schedule.arn`),
+                })
+            ])
+        )
+    }
 
     return databags
 }
