@@ -95,6 +95,13 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }),
         )
     }
+    if(block.maximum_retry_attempts || block.maximum_event_age_in_seconds) {
+        databags.push(cloudResource("aws_lambda_function_event_invoke_config", `${bag.Name}_retry`, {
+            function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
+            maximum_event_age_in_seconds: block.maximum_event_age_in_seconds,
+            maximum_retry_attempts: block.maximum_retry_attempts,
+        }))
+    }
     if(block.provisioned_concurrency) {
         databags.push(
             cloudResource("aws_lambda_alias", `${bag.Name}_alias`, {
@@ -186,8 +193,34 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }))
         )
     }
+    if(block.event_sqs) {
+        const eventSqss = asValArrayConst(block.event_sqs)
+        databags.push(
+            ...eventSqss.map((event, i) => cloudResource("aws_lambda_event_source_mapping", `${bag.Name}_${i}_sqs_mapping`, {
+                event_source_arn: event.queue_arn,
+                enabled: event.enabled,
+                function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
+                batch_size: event.batch_size || 1,
+                starting_position: event.starting_position || "TRIM_HORIZON",
+                function_response_types: event.function_response_types,
+                parallelization_factor: event.parallelization_factor,
+                maximum_batching_window_in_seconds: event.maximum_batching_window_in_seconds,
+                maximum_record_age_in_seconds: event.maximum_record_age_in_seconds,
+                bisect_batch_on_function_error: event.bisect_batch_on_function_error,
+                tumbling_window_in_seconds: event.tumbling_window_in_seconds,
+                destination_config: event.on_failure_destination_arn ? asBlock([{
+                    on_failure: asBlock([{
+                        destination_arn: event.on_failure_destination_arn,
+                    }])
+                }]) : undefined,
+                filter_criteria: event.filter ? asBlock([{
+                    filter: asBlock(asValArrayConst(event.filter).map(f => ({ pattern: f.pattern })))
+                }]) : undefined
+            }))
+        )
+    }
     if(block.event_schedule) {
-        let eventSchedules = asValArrayConst(block.event_schedule)
+        const eventSchedules = asValArrayConst(block.event_schedule)
         databags.push(
             ...eventSchedules.flatMap((event, i) => [
                 cloudResource('aws_cloudwatch_event_rule', `${bag.Name}_${i}_schedule`, {

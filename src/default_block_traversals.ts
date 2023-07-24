@@ -21,7 +21,8 @@ if(allDefaultTraversals.length === 0) {
     quit()
 }
 if(container.default === undefined) {
-    throw new Error(`found ${allDefaultTraversals.length} references to default (for example '${asStr(allDefaultTraversals[0])}'), but no default block was found`)
+    console.log(`found ${allDefaultTraversals.length} references to default (for example '${asStr(allDefaultTraversals[0])}'), but no default block was found`)
+    quit()
 }
 
 const databag = {

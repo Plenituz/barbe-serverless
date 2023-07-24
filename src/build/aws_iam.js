@@ -1,6 +1,7 @@
 (() => {
   // barbe-sls-lib/consts.ts
   var AWS_S3 = "aws_s3";
+  var AWS_SQS = "aws_sqs";
   var AWS_FUNCTION = "aws_function";
   var AWS_DYNAMODB = "aws_dynamodb";
   var AWS_KINESIS_STREAM = "aws_kinesis_stream";
@@ -480,6 +481,13 @@
           ])
         }
       );
+    }
+    if (AWS_SQS in container) {
+      statements.push({
+        Action: "sqs:*",
+        Effect: "Allow",
+        Resource: Object.keys(container[AWS_SQS]).map((sqsName) => asTraversal(`aws_sqs_queue.${sqsName}_sqs.arn`))
+      });
     }
     if (AWS_DYNAMODB in container) {
       statements.push({

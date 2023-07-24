@@ -1068,6 +1068,7 @@
               } else {
                 throw new Error(`'${asStr(event.type)}' is an invalid value for 'aws_function.${otherBag.Name}.type'`);
               }
+              return sourceArn;
             })(),
             filter_criteria: event.filter ? asBlock([{
               filter: asBlock(asValArrayConst(event.filter).map((f) => ({

@@ -1,4 +1,4 @@
-import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3, AWS_FARGATE_SERVICE } from './barbe-sls-lib/consts';
+import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3, AWS_FARGATE_SERVICE, AWS_SQS } from './barbe-sls-lib/consts';
 import { applyDefaults, compileGlobalNamePrefix, compileNamePrefix, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
 import { appendToTemplate, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, SyntaxToken, asValArrayConst, asFuncCall, asTraversal, asTemplate, asVal, uniq, asStr, cloudResourceRaw, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
@@ -103,6 +103,13 @@ function lambdaRoleStatement(label: string, namePrefix: SyntaxToken, assumableBy
                 ])
             }
         )
+    }
+    if(AWS_SQS in container) {
+        statements.push({
+            Action: 'sqs:*',
+            Effect: 'Allow',
+            Resource: Object.keys(container[AWS_SQS]).map((sqsName) => asTraversal(`aws_sqs_queue.${sqsName}_sqs.arn`))
+        })
     }
     if (AWS_DYNAMODB in container) {
         statements.push({
