@@ -870,7 +870,7 @@ export function throwStatement(message: string): never {
     throw new Error(message)
 }
 
-export function readDatabagContainer() {
+export function readDatabagContainer(): DatabagContainer {
     return JSON.parse(os.file.readFile("__barbe_input.json"))
 }
 

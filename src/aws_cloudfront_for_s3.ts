@@ -1,7 +1,21 @@
 import { AWS_CLOUDFRONT_FOR_S3, AWS_KINESIS_STREAM } from './barbe-sls-lib/consts';
 import { awsDomainBlockResources } from './barbe-sls-lib/helpers';
 import { applyDefaults, compileBlockParam, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
-import { appendToTemplate, appendToTraversal, asBlock, asTemplate, asTraversal, Databag, exportDatabags, iterateBlocks, onlyRunForLifecycleSteps, readDatabagContainer, SugarCoatedDatabag } from './barbe-std/utils';
+import {
+    appendToTemplate,
+    appendToTraversal,
+    asBlock,
+    asStr,
+    asTemplate,
+    asTraversal,
+    Databag,
+    exportDatabags,
+    iterateBlocks,
+    onlyRunForLifecycleSteps,
+    readDatabagContainer,
+    SugarCoatedDatabag
+} from './barbe-std/utils';
+import md5 from "md5";
 
 
 const container = readDatabagContainer()
@@ -20,6 +34,13 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     if(!block.s3_bucket) {
         throw new Error(`missing 's3_bucket' on aws_cloudfront_for_s3.${bag.Name}`)
     }
+
+    const allBlockWithThisS3Bucket = Object.keys(container[AWS_CLOUDFRONT_FOR_S3]).filter(key => {
+        const [b] = applyDefaults(container, container[AWS_CLOUDFRONT_FOR_S3][key][0].Value)
+        return asStr(b.s3_bucket) === asStr(block.s3_bucket)
+    })
+    //hash might have a number in front so we put a _
+    const policyDocumentHash = '_' + md5(block.s3_bucket.Traversal[1].Name)
 
     const dotDomain = compileBlockParam(block, 'domain')
     const domainBlock = awsDomainBlockResources({
@@ -45,7 +66,7 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             name: 'Managed-CORS-With-Preflight',
         }),
         cloudResource('aws_cloudfront_origin_access_identity', `${bag.Name}_cf_for_s3_oai`, {}),
-        cloudData('aws_iam_policy_document', `${bag.Name}_cf_for_s3_policy_document`, {
+        cloudData('aws_iam_policy_document', `${policyDocumentHash}_cf_for_s3_policy_document`, {
             statement: asBlock([{
                 actions: ['s3:GetObject'],
                 resources: [
@@ -56,15 +77,13 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 ],
                 principals: asBlock([{
                     type: 'AWS',
-                    identifiers: [
-                        asTraversal(`aws_cloudfront_origin_access_identity.${bag.Name}_cf_for_s3_oai.iam_arn`)
-                    ]
+                    identifiers: allBlockWithThisS3Bucket.map(bagName => asTraversal(`aws_cloudfront_origin_access_identity.${bagName}_cf_for_s3_oai.iam_arn`))
                 }])
             }])
         }),
-        cloudResource('aws_s3_bucket_policy', `${bag.Name}_cf_for_s3_policy`, {
+        cloudResource('aws_s3_bucket_policy', `${policyDocumentHash}_cf_for_s3_policy`, {
             bucket: appendToTraversal(block.s3_bucket, 'id'),
-            policy: asTraversal(`data.aws_iam_policy_document.${bag.Name}_cf_for_s3_policy_document.json`)
+            policy: asTraversal(`data.aws_iam_policy_document.${policyDocumentHash}_cf_for_s3_policy_document.json`)
         }),
         cloudResource('aws_cloudfront_distribution', `${bag.Name}_cf_for_s3`, {
             enabled: true,
@@ -91,9 +110,9 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 target_origin_id: 'bucket',
                 viewer_protocol_policy: 'redirect-to-https',
                 compress: true,
-                origin_request_policy_id: asTraversal(`data.aws_cloudfront_origin_request_policy.${bag.Name}_cf_for_s3_cors_s3_origin.id`),
-                cache_policy_id: asTraversal(`data.aws_cloudfront_cache_policy.${bag.Name}_cf_for_s3_caching_optimized.id`),
-                response_headers_policy_id: asTraversal(`data.aws_cloudfront_response_headers_policy.${bag.Name}_cf_for_s3_cors_w_preflight.id`),
+                origin_request_policy_id: block.origin_request_policy_id || asTraversal(`data.aws_cloudfront_origin_request_policy.${bag.Name}_cf_for_s3_cors_s3_origin.id`),
+                cache_policy_id: block.cache_policy_id || asTraversal(`data.aws_cloudfront_cache_policy.${bag.Name}_cf_for_s3_caching_optimized.id`),
+                response_headers_policy_id: block.response_headers_policy_id || asTraversal(`data.aws_cloudfront_response_headers_policy.${bag.Name}_cf_for_s3_cors_w_preflight.id`),
             }]),
 
 
