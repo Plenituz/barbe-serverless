@@ -104,7 +104,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
         databags.push(
             cloudResource('aws_ecr_repository', `aws_fargate_service_${bag.Name}_ecr_repository`, {
                 name: appendToTemplate(namePrefix, [`${bag.Name}-fs-ecr`]),
-                force_delete: true
+                    force_delete: true
             }),
             cloudOutput('', `aws_fargate_service_${bag.Name}_ecr_repository`, {
                 value: asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`),
