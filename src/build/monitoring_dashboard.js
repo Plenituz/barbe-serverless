@@ -1,10 +1,4 @@
 (() => {
-  // barbe-sls-lib/consts.ts
-  var FOR_EACH = "for_each";
-  var BARBE_SLS_VERSION = "v0.2.3";
-  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
-  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
-
   // barbe-std/rpc.ts
   function isFailure(resp) {
     return resp.error !== void 0;
@@ -34,109 +28,6 @@
     "splat": true,
     "anon": true
   };
-  function visitTokens(root, visitor) {
-    const result = visitor(root);
-    if (result) {
-      return result;
-    }
-    switch (root.Type) {
-      default:
-        return root;
-      case "anon":
-      case "literal_value":
-      case "scope_traversal":
-        return root;
-      case "relative_traversal":
-        return {
-          Type: "relative_traversal",
-          Meta: root.Meta || void 0,
-          Source: visitTokens(root.Source, visitor),
-          Traversal: root.Traversal
-        };
-      case "splat":
-        return {
-          Type: "splat",
-          Meta: root.Meta || void 0,
-          Source: visitTokens(root.Source, visitor),
-          SplatEach: visitTokens(root.SplatEach, visitor)
-        };
-      case "object_const":
-        return {
-          Type: "object_const",
-          Meta: root.Meta || void 0,
-          ObjectConst: root.ObjectConst?.map((item) => ({
-            Key: item.Key,
-            Value: visitTokens(item.Value, visitor)
-          }))
-        };
-      case "array_const":
-        return {
-          Type: "array_const",
-          Meta: root.Meta || void 0,
-          ArrayConst: root.ArrayConst?.map((item) => visitTokens(item, visitor))
-        };
-      case "template":
-        return {
-          Type: "template",
-          Meta: root.Meta || void 0,
-          Parts: root.Parts?.map((item) => visitTokens(item, visitor))
-        };
-      case "function_call":
-        return {
-          Type: "function_call",
-          Meta: root.Meta || void 0,
-          FunctionName: root.FunctionName,
-          FunctionArgs: root.FunctionArgs?.map((item) => visitTokens(item, visitor))
-        };
-      case "index_access":
-        return {
-          Type: "index_access",
-          Meta: root.Meta || void 0,
-          IndexCollection: visitTokens(root.IndexCollection, visitor),
-          IndexKey: visitTokens(root.IndexKey, visitor)
-        };
-      case "conditional":
-        return {
-          Type: "conditional",
-          Meta: root.Meta || void 0,
-          Condition: visitTokens(root.Condition, visitor),
-          TrueResult: visitTokens(root.TrueResult, visitor),
-          FalseResult: visitTokens(root.FalseResult, visitor)
-        };
-      case "parens":
-        return {
-          Type: "parens",
-          Meta: root.Meta || void 0,
-          Source: visitTokens(root.Source, visitor)
-        };
-      case "binary_op":
-        return {
-          Type: "binary_op",
-          Meta: root.Meta || void 0,
-          Operator: root.Operator,
-          RightHandSide: visitTokens(root.RightHandSide, visitor),
-          LeftHandSide: visitTokens(root.LeftHandSide, visitor)
-        };
-      case "unary_op":
-        return {
-          Type: "unary_op",
-          Meta: root.Meta || void 0,
-          Operator: root.Operator,
-          RightHandSide: visitTokens(root.RightHandSide, visitor)
-        };
-      case "for":
-        return {
-          Type: "for",
-          Meta: root.Meta || void 0,
-          ForKeyVar: root.ForKeyVar,
-          ForValVar: root.ForValVar,
-          ForCollExpr: visitTokens(root.ForCollExpr, visitor),
-          ForKeyExpr: root.ForKeyExpr ? visitTokens(root.ForKeyExpr, visitor) : void 0,
-          ForValExpr: visitTokens(root.ForValExpr, visitor),
-          ForCondExpr: root.ForCondExpr ? visitTokens(root.ForCondExpr, visitor) : void 0
-        };
-    }
-  }
   function asStr(token) {
     if (typeof token === "string") {
       return token;
@@ -197,21 +88,6 @@
         };
     }
   }
-  function isSimpleTemplate(token) {
-    if (!token) {
-      return false;
-    }
-    if (typeof token === "string" || token.Type === "literal_value") {
-      return true;
-    }
-    if (token.Type !== "template") {
-      return false;
-    }
-    if (!token.Parts) {
-      return true;
-    }
-    return token.Parts.every(isSimpleTemplate);
-  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -230,6 +106,9 @@
       default:
         throw new Error(`cannot turn token type '${token.Type}' into a value`);
     }
+  }
+  function asValArrayConst(token) {
+    return asVal(token).map((item) => asVal(item));
   }
   function asSyntax(token) {
     if (typeof token === "object" && token !== null && token.hasOwnProperty("Type") && token.Type in SyntaxTokenTypes) {
@@ -256,6 +135,17 @@
       return token;
     }
   }
+  function asTraversal(str) {
+    return {
+      Type: "scope_traversal",
+      // TODO will output correct string for indexing ("abc[0]") but
+      // is using the wrong syntax token (Type: "attr" instead of Type: "index")
+      Traversal: str.split(".").map((part) => ({
+        Type: "attr",
+        Name: part
+      }))
+    };
+  }
   function iterateAllBlocks(container2, func) {
     const types = Object.keys(container2);
     let output = [];
@@ -281,6 +171,37 @@
       }
     }
     return output;
+  }
+  function cloudResourceRaw(params) {
+    let typeStr = "cr_";
+    if (params.kind) {
+      typeStr += "[" + params.kind;
+      if (params.id) {
+        typeStr += "(" + params.id + ")";
+      }
+      typeStr += "]";
+      if (params.type) {
+        typeStr += "_";
+      }
+    }
+    if (params.type) {
+      typeStr += params.type;
+    }
+    let value = params.value || {};
+    value = asSyntax(value);
+    if (params.dir) {
+      value = {
+        ...value,
+        Meta: {
+          sub_dir: params.dir
+        }
+      };
+    }
+    return {
+      Type: typeStr,
+      Name: params.name,
+      Value: value
+    };
   }
   function exportDatabags(bags) {
     if (!Array.isArray(bags)) {
@@ -312,6 +233,12 @@
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }
+
+  // barbe-sls-lib/consts.ts
+  var MONITORING_DASHBOARD = "monitoring_dashboard";
+  var BARBE_SLS_VERSION = "v0.2.3";
+  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
 
   // barbe-sls-lib/lib.ts
   function compileDefaults(container2, name) {
@@ -387,74 +314,81 @@
     }
     return output;
   }
+  function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
+    const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
+    const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
+    return (type, name, value) => {
+      value = {
+        provider: blockVal.region && type.includes("aws") ? asTraversal(`aws.${asStr(blockVal.region)}`) : void 0,
+        ...preconf,
+        ...value
+      };
+      return cloudResourceRaw({
+        kind,
+        dir: cloudResourceDir,
+        id: cloudResourceId,
+        type,
+        name,
+        value: Object.entries(value).filter(([_, v]) => v !== null && v !== void 0).reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {}),
+        ...bagPreconf
+      });
+    };
+  }
 
-  // for_each.ts
+  // monitoring_dashboard.ts
   var container = readDatabagContainer();
   onlyRunForLifecycleSteps(["pre_generate", "generate", "post_generate"]);
-  function formatTokenAsDatabag(token, providerSuffix) {
-    let output = [];
-    for (const pair of token.ObjectConst || []) {
-      if (!pair.Value.Meta?.IsBlock) {
-        continue;
-      }
-      for (const item of pair.Value.ArrayConst || []) {
-        const labels = item.Meta?.Labels || [];
-        output.push({
-          //provider blocks are special because you can have several of them with identical type and labels
-          //to make sure they all get formatted by the terraform formatter, we add a hidden suffix in parenthesis
-          Type: pair.Key === "provider" ? `provider${providerSuffix}` : pair.Key,
-          Name: labels.length > 0 ? labels[0] : "",
-          Labels: labels.slice(1),
-          Value: item
-        });
-      }
+  function sizeToHeight(size) {
+    switch (size) {
+      default:
+        console.log('invalid size for monitoring_dashboard widget: "' + size + '"');
+      case "short":
+        return 3;
+      case "medium":
+        return 6;
+      case "tall":
+        return 9;
     }
-    return output;
   }
-  function forEachIterator(bag) {
+  function monitoringDashboardIterator(bag) {
     if (!bag.Value) {
       return [];
     }
-    const [block, _] = applyDefaults(container, bag.Value);
-    if (!block[bag.Name]) {
-      throw new Error(`for_each: cannot iterate over undefined property: '${bag.Name}'. You probably want to add it to the 'default' block`);
-    }
-    const arrToIterate = asVal(block[bag.Name]);
-    if (!Array.isArray(arrToIterate)) {
-      throw new Error(`for_each: cannot iterate over non-array property: '${bag.Name}'`);
-    }
-    return arrToIterate.map((item, index) => {
-      if (!isSimpleTemplate(item)) {
-        console.log("for_each: value is not a simple template: '" + bag.Name + "'");
-        return [];
+    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    const cloudResource = preConfCloudResourceFactory(block, "resource");
+    let widgets = [];
+    const lineSize = 15;
+    let currentX = 0;
+    let currentY = 0;
+    for (let row of asValArrayConst(block.row)) {
+      let widgetWidth = lineSize / row.length;
+      let maxHeightOfLine = 0;
+      for (let line of asValArrayConst(row.line)) {
+        let height = sizeToHeight(line.size);
+        if (height > maxHeightOfLine) {
+          maxHeightOfLine = height;
+        }
+        let widget = {
+          height,
+          width: widgetWidth,
+          x: currentX,
+          y: currentY,
+          type: "metric",
+          properties: {
+            view: "timeSeries",
+            stacked: false,
+            region: line.region || block.region || "us-east-1"
+          }
+        };
+        currentX += widgetWidth;
+        widgets.push(widget);
+        console.log("line", JSON.stringify(line));
       }
-      const eachDotKeyValue = asStr(item);
-      const replaceEachDotKeyRefs = (token) => {
-        if (token.Meta?.Labels?.some((str) => str.includes("${each.key}"))) {
-          return visitTokens({
-            ...token,
-            Meta: {
-              ...token.Meta,
-              Labels: token.Meta.Labels.map((str) => str.replace("${each.key}", eachDotKeyValue))
-            }
-          }, replaceEachDotKeyRefs);
-        }
-        if (token.Type === "literal_value" && typeof token.Value === "string" && token.Value.includes("${each.key}")) {
-          return {
-            ...token,
-            Value: token.Value.replace("${each.key}", eachDotKeyValue)
-          };
-        }
-        if (token.Type === "scope_traversal" && !!token.Traversal && token.Traversal.length === 2 && token.Traversal[0].Name === "each" && token.Traversal[1].Name === "key") {
-          return {
-            Type: "literal_value",
-            Value: eachDotKeyValue
-          };
-        }
-        return null;
-      };
-      return formatTokenAsDatabag(visitTokens(bag.Value, replaceEachDotKeyRefs), `${eachDotKeyValue}_${index}`);
-    }).flat();
+      currentY += maxHeightOfLine;
+    }
+    console.log("widgets", JSON.stringify(widgets, void 0, "    "));
   }
-  exportDatabags(iterateBlocks(container, FOR_EACH, forEachIterator).flat());
+  exportDatabags([
+    ...iterateBlocks(container, MONITORING_DASHBOARD, monitoringDashboardIterator).flat()
+  ]);
 })();

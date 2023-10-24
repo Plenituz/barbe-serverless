@@ -22,6 +22,7 @@
         "barbe-serverless/aws_fargate_service.js:v0.2.3",
         "barbe-serverless/baked_funcs.js:v0.2.3",
         "barbe-serverless/aws_cert_domain.js:v0.2.3",
-        "barbe-serverless/aws_cloudfront_for_s3.js:v0.2.3"
+        "barbe-serverless/aws_cloudfront_for_s3.js:v0.2.3",
+        "barbe-serverless/monitoring_dashboard.js:v0.2.3"
     ]
 }

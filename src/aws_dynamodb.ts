@@ -1,6 +1,11 @@
 import md5 from 'md5';
 import { AWS_DYNAMODB, AWS_FUNCTION, EVENT_DYNAMODB_STREAM } from './barbe-sls-lib/consts';
-import { applyDefaults, DatabagObjVal, preConfCloudResourceFactory, preConfTraversalTransform } from './barbe-sls-lib/lib';
+import {
+    applyDefaults, compileGlobalNamePrefix,
+    DatabagObjVal,
+    preConfCloudResourceFactory,
+    preConfTraversalTransform
+} from './barbe-sls-lib/lib';
 import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()
@@ -60,6 +65,51 @@ let orphanKinesisSourceMappings = ddbStreamEventsKinesisOrphans.map(({event, bag
         }]) : undefined
     })
 })
+
+let ddbWithBackupEnabled = iterateBlocks(container, AWS_DYNAMODB, (bag): SyntaxToken[] => {
+    if(!bag.Value) {
+        return []
+    }
+    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    if (!block.enable_backup) {
+        return []
+    }
+    if(!asVal(block.enable_backup)) {
+        return []
+    }
+    return [
+        asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.arn`),
+    ]
+}).flat()
+
+let ddbBackupPlan: SugarCoatedDatabag[] = []
+if(ddbWithBackupEnabled.length > 0) {
+    const cloudResource = preConfCloudResourceFactory({}, 'resource')
+    const namePrefix = compileGlobalNamePrefix(container)
+    ddbBackupPlan = [
+        cloudResource('aws_backup_plan', 'aws_ddb_backup_plan', {
+            name: appendToTemplate(namePrefix, ['ddb-backup-plan']),
+            rule: asBlock([{
+                rule_name: 'aws-ddb-backup-plan',
+                target_vault_name: 'Default',
+                schedule: 'cron(0 12 * * ? *)',
+                lifecycle: asBlock([{
+                    delete_after: 30,
+                }]),
+            }])
+        }),
+        cloudResource('aws_backup_selection', `aws_ddb_backup_selection`, {
+            iam_role_arn: asTemplate([
+                "arn:aws:iam::",
+                asTraversal("data.aws_caller_identity.current.account_id"),
+                ":role/aws-service-role/backup.amazonaws.com/AWSServiceRoleForBackup",
+            ]),
+            name: appendToTemplate(namePrefix, ['ddb-backup-selection']),
+            plan_id: asTraversal(`aws_backup_plan.aws_ddb_backup_plan.id`),
+            resources: asSyntax(ddbWithBackupEnabled)
+        })
+    ]
+}
 
 function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     if(!bag.Value) {
@@ -341,7 +391,7 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 ignore_changes: [
                     asTraversal('read_capacity'), 
                     asTraversal('write_capacity'),
-                    asTraversal('global_secondary_index')
+                    // asTraversal('global_secondary_index')
                 ].concat(regions.length > 1 ? [asTraversal('replica')] : [])
             }]) : undefined,
             point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
@@ -482,5 +532,6 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
 exportDatabags([
     ...iterateBlocks(container, AWS_DYNAMODB, awsDynamodbIterator).flat(),
     ...orphanKinesisSourceMappings,
+    ...ddbBackupPlan,
 ])
 

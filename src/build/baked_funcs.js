@@ -230,6 +230,26 @@
   // baked_funcs.ts
   var container = readDatabagContainer();
   var tokenMap = [];
+  var conditionSimplifier = (notifyChange) => (token) => {
+    if (token.Type !== "conditional") {
+      return null;
+    }
+    if (token.Condition?.Type !== "binary_op") {
+      return null;
+    }
+    if (token.Condition.Operator !== "==") {
+      return null;
+    }
+    if (!isSimpleTemplate(token.Condition.LeftHandSide) || !isSimpleTemplate(token.Condition.RightHandSide)) {
+      return null;
+    }
+    notifyChange();
+    if (asStr(token.Condition.LeftHandSide) === asStr(token.Condition.RightHandSide)) {
+      return token.TrueResult;
+    } else {
+      return token.FalseResult;
+    }
+  };
   function visitor(token) {
     if (token.Type !== "function_call") {
       return null;
@@ -258,6 +278,17 @@
       return [];
     }
     visitTokens(bag.Value, visitor);
+  });
+  iterateAllBlocks(container, (bag) => {
+    if (!bag.Value) {
+      return [];
+    }
+    let changed = false;
+    let newValue = visitTokens(bag.Value, conditionSimplifier(() => changed = true));
+    if (changed) {
+      bag.Value = newValue;
+      exportDatabags([bag]);
+    }
   });
   if (tokenMap.length !== 0) {
     exportDatabags([{

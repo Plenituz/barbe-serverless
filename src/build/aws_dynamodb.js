@@ -673,6 +673,10 @@
     }
     return output;
   }
+  function compileGlobalNamePrefix(container2) {
+    const globalDefaults = asVal(compileDefaults(container2, ""));
+    return compileNamePrefix(container2, globalDefaults);
+  }
   function preConfCloudResourceFactory(blockVal, kind, preconf, bagPreconf) {
     const cloudResourceId = blockVal.cloudresource_id ? asStr(blockVal.cloudresource_id) : void 0;
     const cloudResourceDir = blockVal.cloudresource_dir ? asStr(blockVal.cloudresource_dir) : void 0;
@@ -750,6 +754,49 @@
       }]) : void 0
     });
   });
+  var ddbWithBackupEnabled = iterateBlocks(container, AWS_DYNAMODB, (bag) => {
+    if (!bag.Value) {
+      return [];
+    }
+    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    if (!block.enable_backup) {
+      return [];
+    }
+    if (!asVal(block.enable_backup)) {
+      return [];
+    }
+    return [
+      asTraversal(`aws_dynamodb_table.${bag.Name}_aws_dynamodb.arn`)
+    ];
+  }).flat();
+  var ddbBackupPlan = [];
+  if (ddbWithBackupEnabled.length > 0) {
+    const cloudResource = preConfCloudResourceFactory({}, "resource");
+    const namePrefix = compileGlobalNamePrefix(container);
+    ddbBackupPlan = [
+      cloudResource("aws_backup_plan", "aws_ddb_backup_plan", {
+        name: appendToTemplate(namePrefix, ["ddb-backup-plan"]),
+        rule: asBlock([{
+          rule_name: "aws-ddb-backup-plan",
+          target_vault_name: "Default",
+          schedule: "cron(0 12 * * ? *)",
+          lifecycle: asBlock([{
+            delete_after: 30
+          }])
+        }])
+      }),
+      cloudResource("aws_backup_selection", `aws_ddb_backup_selection`, {
+        iam_role_arn: asTemplate([
+          "arn:aws:iam::",
+          asTraversal("data.aws_caller_identity.current.account_id"),
+          ":role/aws-service-role/backup.amazonaws.com/AWSServiceRoleForBackup"
+        ]),
+        name: appendToTemplate(namePrefix, ["ddb-backup-selection"]),
+        plan_id: asTraversal(`aws_backup_plan.aws_ddb_backup_plan.id`),
+        resources: asSyntax(ddbWithBackupEnabled)
+      })
+    ];
+  }
   function awsDynamodbIterator(bag) {
     if (!bag.Value) {
       return [];
@@ -1010,8 +1057,8 @@
         lifecycle: block.auto_scaling ? asBlock([{
           ignore_changes: [
             asTraversal("read_capacity"),
-            asTraversal("write_capacity"),
-            asTraversal("global_secondary_index")
+            asTraversal("write_capacity")
+            // asTraversal('global_secondary_index')
           ].concat(regions.length > 1 ? [asTraversal("replica")] : [])
         }]) : void 0,
         point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
@@ -1144,7 +1191,8 @@
   }
   exportDatabags([
     ...iterateBlocks(container, AWS_DYNAMODB, awsDynamodbIterator).flat(),
-    ...orphanKinesisSourceMappings
+    ...orphanKinesisSourceMappings,
+    ...ddbBackupPlan
   ]);
 })();
 /*! Bundled license information:

@@ -1,6 +1,18 @@
 import { FOR_EACH } from "./barbe-sls-lib/consts";
 import { applyDefaults } from "./barbe-sls-lib/lib";
-import { readDatabagContainer, onlyRunForLifecycleSteps, exportDatabags, iterateBlocks, Databag, SugarCoatedDatabag, asVal, SyntaxToken, visitTokens, asStr } from './barbe-std/utils';
+import {
+    readDatabagContainer,
+    onlyRunForLifecycleSteps,
+    exportDatabags,
+    iterateBlocks,
+    Databag,
+    SugarCoatedDatabag,
+    asVal,
+    SyntaxToken,
+    visitTokens,
+    asStr,
+    isSimpleTemplate
+} from './barbe-std/utils';
 
 
 const container = readDatabagContainer()
@@ -43,6 +55,10 @@ function forEachIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
 
     return arrToIterate.map((item, index): SugarCoatedDatabag[] => {
+        if(!isSimpleTemplate(item)) {
+            console.log('for_each: value is not a simple template: \'' + bag.Name + '\'')
+            return []
+        }
         const eachDotKeyValue = asStr(item)
         const replaceEachDotKeyRefs = (token: SyntaxToken): SyntaxToken | null => {
             if(token.Meta?.Labels?.some(str => str.includes('${each.key}'))) {
@@ -56,7 +72,7 @@ function forEachIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     }
                 }, replaceEachDotKeyRefs)
             }
-            if(token.Type === 'literal_value' && 
+            if(token.Type === 'literal_value' &&
                 typeof token.Value === 'string' && 
                 token.Value.includes('${each.key}')
             ) {

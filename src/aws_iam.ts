@@ -1,5 +1,5 @@
 import { AWS_IAM_LAMBDA_ROLE, AWS_KINESIS_STREAM, AWS_FUNCTION, AWS_FARGATE_TASK, AWS_DYNAMODB, AWS_S3, AWS_FARGATE_SERVICE, AWS_SQS } from './barbe-sls-lib/consts';
-import { applyDefaults, compileGlobalNamePrefix, compileNamePrefix, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
+import { applyDefaults, compileNamePrefix, preConfCloudResourceFactory } from './barbe-sls-lib/lib';
 import { appendToTemplate, Databag, exportDatabags, iterateBlocks, readDatabagContainer, SugarCoatedDatabag, SyntaxToken, asValArrayConst, asFuncCall, asTraversal, asTemplate, asVal, uniq, asStr, cloudResourceRaw, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 const container = readDatabagContainer()

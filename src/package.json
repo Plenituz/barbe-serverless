@@ -2,7 +2,9 @@
   "name": "src",
   "version": "1.0.0",
   "description": "",
-  "scripts": {},
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "keywords": [],
   "author": "",
   "dependencies": {
