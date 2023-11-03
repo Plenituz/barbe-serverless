@@ -889,7 +889,6 @@
     let executionRole;
     let imageUrl;
     let securityGroupId;
-    let lbHealthCheckBlock;
     let databags = [];
     let imports = [{
       url: AWS_NETWORK_URL,
@@ -1018,7 +1017,7 @@
         })
       );
     }
-    if (block.auto_scaling) {
+    if (block.auto_scaling && !asVal(dotAutoScaling.disabled || asSyntax(false))) {
       let predefinedMetric = "ECSServiceAverageCPUUtilization";
       if (dotAutoScaling.metric) {
         const metric = asStr(dotAutoScaling.metric);
@@ -1064,6 +1063,25 @@
       );
     }
     let ecsLoadBalancers = [];
+    function getTaskSubnets() {
+      if (taskAccessibility) {
+        switch (taskAccessibility) {
+          case "public":
+            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
+          case "private":
+            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
+          default:
+            throw new Error(`Unknown value '${taskAccessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`);
+        }
+      }
+      if (block.load_balancer) {
+        return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
+      }
+      if (block.network && dotNetwork.make_nat_gateway && asVal(dotNetwork.make_nat_gateway)) {
+        return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`);
+      }
+      return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
+    }
     let ecsService = {
       name: appendToTemplate(namePrefix, [`${bag.Name}-fargate-service`]),
       cluster: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.id`),
@@ -1073,30 +1091,12 @@
       enable_ecs_managed_tags: true,
       propagate_tags: "SERVICE",
       network_configuration: asBlock([{
-        subnets: (() => {
-          if (taskAccessibility) {
-            switch (taskAccessibility) {
-              case "public":
-                return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
-              case "private":
-                return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
-              default:
-                throw new Error(`Unknown value '${taskAccessibility}' on aws_fargate_service.${bag.Name}.task_accessibility, it must be either 'public' or 'private'`);
-            }
-          }
-          if (block.load_balancer) {
-            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`);
-          }
-          if (block.network && dotNetwork.make_nat_gateway && asVal(dotNetwork.make_nat_gateway)) {
-            return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets`);
-          }
-          return asTraversal(`aws_network.aws_fargate_service_${bag.Name}.public_subnets.*.id`);
-        })(),
+        subnets: getTaskSubnets(),
         security_groups: [securityGroupId],
         assign_public_ip: true
       }])
     };
-    if (block.auto_scaling) {
+    if (block.auto_scaling && !asVal(dotAutoScaling.disabled || asSyntax(false))) {
       ecsService.lifecycle = asBlock([{
         ignore_changes: [asTraversal("desired_count")]
       }]);
@@ -1473,7 +1473,39 @@
       traversalTransform(`aws_fargate_service_transforms`, {
         [`aws_fargate_service.${bag.Name}.ecs_cluster`]: `aws_ecs_cluster.${bag.Name}_fargate_cluster`,
         [`aws_fargate_service.${bag.Name}.ecs_service`]: `aws_ecs_service.${bag.Name}_fargate_service`,
-        [`aws_fargate_service.${bag.Name}.load_balancer`]: `aws_lb.${bag.Name}_fargate_lb`
+        [`aws_fargate_service.${bag.Name}.load_balancer`]: `aws_lb.${bag.Name}_fargate_lb`,
+        [`aws_fargate_service.${bag.Name}.run_task_payload`]: `data.template_file.${bag.Name}_fargate_run_task_payload.rendered`
+      }),
+      cloudData("template_file", `${bag.Name}_fargate_run_task_payload`, {
+        template: `{
+                "taskDefinition": "\${task_definition}",
+                "cluster": "\${cluster}",
+                "launchType": "FARGATE",
+                "count": 1,
+                "networkConfiguration": {
+                    "awsvpcConfiguration": {
+                        "subnets": \${subnet_ids},
+                        "securityGroups": ["\${security_group_id}"],
+                        "assignPublicIp": "ENABLED"
+                    }
+                },
+                "overrides": {
+                    "containerOverrides": [
+                        {
+                            "name": "\${container_name}"
+                        }
+                    ]
+                }
+            }`,
+        vars: {
+          task_definition: asTraversal(`aws_ecs_task_definition.${bag.Name}_fargate_task_def.arn`),
+          cluster: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.name`),
+          subnet_ids: asFuncCall("jsonencode", [
+            getTaskSubnets()
+          ]),
+          security_group_id: securityGroupId,
+          container_name: containerName
+        }
       }),
       cloudOutput("", `aws_fargate_service_${bag.Name}_cluster`, {
         value: asTraversal(`aws_ecs_cluster.${bag.Name}_fargate_cluster.name`)

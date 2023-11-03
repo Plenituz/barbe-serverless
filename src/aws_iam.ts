@@ -168,6 +168,38 @@ function lambdaRoleStatement(label: string, namePrefix: SyntaxToken, assumableBy
                 Resource: "*"
             },
             {
+                Action: "ecs:RunTask",
+                Effect: "Allow",
+                Resource: asTemplate([
+                    'arn:',
+                    asTraversal('data.aws_partition.current.partition'),
+                    ':ecs:*:',
+                    asTraversal('data.aws_caller_identity.current.account_id'),
+                    ':task-definition/',
+                    namePrefix,
+                    '*',
+                ])
+            },
+            {
+                Action: 'iam:PassRole',
+                Effect: 'Allow',
+                //TODO this will cause duplicate entries if 2 tasks are defined and they both have the same
+                //execution role (which is the case most of the time since we use the account's default by default)
+                //this doesnt prevent the template from working but it will cause duplicate entries in the policy
+                Resource: [
+                    ...Object.keys(container[AWS_FARGATE_SERVICE]).map((fargateName) => asTraversal(`aws_ecs_task_definition.${fargateName}_fargate_task_def.execution_role_arn`)),
+                    asTemplate([
+                        'arn:',
+                        asTraversal('data.aws_partition.current.partition'),
+                        ":iam::",
+                        asTraversal('data.aws_caller_identity.current.account_id'),
+                        ':role/',
+                        namePrefix,
+                        '*'
+                    ])
+                ]
+            },
+            {
                 Action: 'logs:PutLogEvents',
                 Effect: 'Allow',
                 Resource: asTemplate([
