@@ -478,7 +478,7 @@
         })
       );
     }
-    if (!block.subnet_ids) {
+    if (!block.subnet_ids && block.enable_vpc_endpoints && asVal(block.enable_vpc_endpoints)) {
       let vpcEndpoints = asVal(block.vpc_endpoints || asSyntax([]));
       if (container[AWS_DYNAMODB]) {
         vpcEndpoints.push("dynamodb");

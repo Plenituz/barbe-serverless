@@ -546,17 +546,28 @@
           Resource: "*"
         },
         {
-          Action: "ecs:RunTask",
+          Action: "ecs:*",
           Effect: "Allow",
-          Resource: asTemplate([
-            "arn:",
-            asTraversal("data.aws_partition.current.partition"),
-            ":ecs:*:",
-            asTraversal("data.aws_caller_identity.current.account_id"),
-            ":task-definition/",
-            namePrefix,
-            "*"
-          ])
+          Resource: [
+            asTemplate([
+              "arn:",
+              asTraversal("data.aws_partition.current.partition"),
+              ":ecs:*:",
+              asTraversal("data.aws_caller_identity.current.account_id"),
+              ":task-definition/",
+              namePrefix,
+              "*"
+            ]),
+            asTemplate([
+              "arn:",
+              asTraversal("data.aws_partition.current.partition"),
+              ":ecs:*:",
+              asTraversal("data.aws_caller_identity.current.account_id"),
+              ":task/",
+              namePrefix,
+              "*"
+            ])
+          ]
         },
         {
           Action: "iam:PassRole",

@@ -903,7 +903,8 @@
           vpc_id: dotNetwork.vpc_id,
           cidr_block: dotNetwork.cidr_block,
           make_nat_gateway: dotNetwork.make_nat_gateway,
-          one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az
+          one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az,
+          name_prefix: [namePrefix]
         }
       }]
     }];
@@ -1526,6 +1527,10 @@
         requires_compatibilities: ["FARGATE"],
         execution_role_arn: executionRole,
         task_role_arn: block.role || asTraversal("aws_iam_role.default_lambda_role.arn"),
+        runtime_platform: block.operating_system_family || block.cpu_architecture ? asBlock([{
+          operating_system_family: block.operating_system_family || "LINUX",
+          cpu_architecture: block.cpu_architecture || "X86_64"
+        }]) : void 0,
         container_definitions: asFuncCall(
           "jsonencode",
           //that's an array of arrays cause we're json marshalling a list of objects

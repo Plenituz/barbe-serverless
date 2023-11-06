@@ -75,6 +75,7 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
                 cidr_block: dotNetwork.cidr_block,
                 make_nat_gateway: dotNetwork.make_nat_gateway,
                 one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az,
+                name_prefix: [namePrefix],
             }
         }]
     }]
@@ -727,6 +728,10 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
             requires_compatibilities: ['FARGATE'],
             execution_role_arn: executionRole,
             task_role_arn: block.role || asTraversal('aws_iam_role.default_lambda_role.arn'),
+            runtime_platform: block.operating_system_family || block.cpu_architecture ? asBlock([{
+                operating_system_family: block.operating_system_family || 'LINUX',
+                cpu_architecture: block.cpu_architecture || 'X86_64',
+            }]) : undefined,
             container_definitions: asFuncCall(
                 'jsonencode',
                 //that's an array of arrays cause we're json marshalling a list of objects

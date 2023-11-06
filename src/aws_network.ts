@@ -54,7 +54,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
 
     //VPC endpoints only if we control the subnets
-    if(!block.subnet_ids) {
+    if(!block.subnet_ids && block.enable_vpc_endpoints && asVal(block.enable_vpc_endpoints)) {
         let vpcEndpoints: (SyntaxToken | string)[] = asVal(block.vpc_endpoints || asSyntax([]))
         if(container[AWS_DYNAMODB]) {
             vpcEndpoints.push('dynamodb')
