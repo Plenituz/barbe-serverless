@@ -948,5 +948,4 @@ switch(barbeLifecycleStep()) {
     case 'post_apply':
         apply()
         break
-
 }

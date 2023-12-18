@@ -432,6 +432,10 @@
     const packageLocation = dotPackage.packaged_file || `.package/${bag.Name}_lambda_package.zip`;
     const dotEnvironment = compileBlockParam(block, "environment");
     const dotProvisionedConc = compileBlockParam(block, "provisioned_concurrency");
+    let packageType = "Zip";
+    if (block.image_uri) {
+      packageType = "Image";
+    }
     let databags = [
       //we need to duplicate this in case this component is imported without the aws_base component
       cloudData("aws_caller_identity", "current", {}),
@@ -439,20 +443,9 @@
         [`aws_function.${bag.Name}`]: `aws_lambda_function.${bag.Name}_lambda`,
         [`aws_function.${bag.Name}.function_url`]: `aws_lambda_function_url.${bag.Name}_lambda_url.function_url`
       }),
-      //TODO allow using existing bucket
-      cloudResource("aws_s3_bucket", "deployment_bucket", {
-        bucket: appendToTemplate(namePrefix, ["deploy-bucket"]),
-        force_destroy: true
-      }),
-      cloudResource("aws_s3_object", `${bag.Name}_package`, {
-        bucket: asTraversal("aws_s3_bucket.deployment_bucket.id"),
-        key: appendToTemplate(namePrefix, [`${bag.Name}_lambda_package.zip`]),
-        source: packageLocation,
-        etag: asFuncCall("filemd5", [packageLocation])
-      }),
       cloudResource("aws_lambda_function", `${bag.Name}_lambda`, {
         function_name: appendToTemplate(namePrefix, [bag.Name]),
-        package_type: "Zip",
+        package_type: packageType,
         publish: true,
         description: block.description || void 0,
         handler: block.handler || void 0,
@@ -463,9 +456,10 @@
         role: block.role || asTraversal("aws_iam_role.default_lambda_role.arn"),
         architectures: [block.architecture || "x86_64"],
         layers: block.layers || void 0,
-        s3_bucket: asTraversal("aws_s3_bucket.deployment_bucket.id"),
-        s3_key: asTraversal(`aws_s3_object.${bag.Name}_package.id`),
-        source_code_hash: asFuncCall("filebase64sha256", [packageLocation]),
+        s3_bucket: packageType === "Zip" ? asTraversal("aws_s3_bucket.deployment_bucket.id") : void 0,
+        s3_key: packageType === "Zip" ? asTraversal(`aws_s3_object.${bag.Name}_package.id`) : void 0,
+        source_code_hash: packageType === "Zip" ? asFuncCall("filebase64sha256", [packageLocation]) : void 0,
+        image_uri: packageType === "Image" ? block.image_uri : void 0,
         // "architectures" causes a re-deploys even when unchanged, so we kind of have to add this.
         // this technically forces users to delete/recreate lambda functions if they change the architecture
         // but it's probably a rare thing to do/a bad idea anyway
@@ -484,17 +478,32 @@
         retention_in_days: block.logs_retention_days || 30
       })
     ];
-    if (!dotPackage.packaged_file) {
-      databags.push({
-        Name: `${bag.Name}_${cloudResourceId}${cloudResourceDir}_lambda_package`,
-        Type: "zipper",
-        Value: {
-          output_file: `${cloudResourceDir ? `${cloudResourceDir}/` : ""}${packageLocation}`,
-          file_map: dotPackage.file_map || {},
-          include: dotPackage.include || [],
-          exclude: dotPackage.exclude || []
-        }
-      });
+    if (packageType === "Zip") {
+      databags.push(
+        //TODO allow using existing bucket
+        cloudResource("aws_s3_bucket", "deployment_bucket", {
+          bucket: appendToTemplate(namePrefix, ["deploy-bucket"]),
+          force_destroy: true
+        }),
+        cloudResource("aws_s3_object", `${bag.Name}_package`, {
+          bucket: asTraversal("aws_s3_bucket.deployment_bucket.id"),
+          key: appendToTemplate(namePrefix, [`${bag.Name}_lambda_package.zip`]),
+          source: packageLocation,
+          etag: asFuncCall("filemd5", [packageLocation])
+        })
+      );
+      if (!dotPackage.packaged_file) {
+        databags.push({
+          Name: `${bag.Name}_${cloudResourceId}${cloudResourceDir}_lambda_package`,
+          Type: "zipper",
+          Value: {
+            output_file: `${cloudResourceDir ? `${cloudResourceDir}/` : ""}${packageLocation}`,
+            file_map: dotPackage.file_map || {},
+            include: dotPackage.include || [],
+            exclude: dotPackage.exclude || []
+          }
+        });
+      }
     }
     if (block.function_url_enabled && asVal(block.function_url_enabled)) {
       databags.push(
