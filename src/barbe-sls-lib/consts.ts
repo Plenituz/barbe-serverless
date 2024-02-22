@@ -23,3 +23,4 @@ export const MONITORING_DASHBOARD = 'monitoring_dashboard'
 const BARBE_SLS_VERSION = 'v0.2.3'
 export const TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`
 export const AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`
+export const AWS_ECR_REPOSITORY_WITH_IMAGE_URL = `barbe-serverless/aws_ecr_repository_with_image.js:${BARBE_SLS_VERSION}`

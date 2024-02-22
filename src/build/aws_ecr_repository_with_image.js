@@ -31,6 +31,109 @@
     "splat": true,
     "anon": true
   };
+  function visitTokens(root, visitor) {
+    const result = visitor(root);
+    if (result) {
+      return result;
+    }
+    switch (root.Type) {
+      default:
+        return root;
+      case "anon":
+      case "literal_value":
+      case "scope_traversal":
+        return root;
+      case "relative_traversal":
+        return {
+          Type: "relative_traversal",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor),
+          Traversal: root.Traversal
+        };
+      case "splat":
+        return {
+          Type: "splat",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor),
+          SplatEach: visitTokens(root.SplatEach, visitor)
+        };
+      case "object_const":
+        return {
+          Type: "object_const",
+          Meta: root.Meta || void 0,
+          ObjectConst: root.ObjectConst?.map((item) => ({
+            Key: item.Key,
+            Value: visitTokens(item.Value, visitor)
+          }))
+        };
+      case "array_const":
+        return {
+          Type: "array_const",
+          Meta: root.Meta || void 0,
+          ArrayConst: root.ArrayConst?.map((item) => visitTokens(item, visitor))
+        };
+      case "template":
+        return {
+          Type: "template",
+          Meta: root.Meta || void 0,
+          Parts: root.Parts?.map((item) => visitTokens(item, visitor))
+        };
+      case "function_call":
+        return {
+          Type: "function_call",
+          Meta: root.Meta || void 0,
+          FunctionName: root.FunctionName,
+          FunctionArgs: root.FunctionArgs?.map((item) => visitTokens(item, visitor))
+        };
+      case "index_access":
+        return {
+          Type: "index_access",
+          Meta: root.Meta || void 0,
+          IndexCollection: visitTokens(root.IndexCollection, visitor),
+          IndexKey: visitTokens(root.IndexKey, visitor)
+        };
+      case "conditional":
+        return {
+          Type: "conditional",
+          Meta: root.Meta || void 0,
+          Condition: visitTokens(root.Condition, visitor),
+          TrueResult: visitTokens(root.TrueResult, visitor),
+          FalseResult: visitTokens(root.FalseResult, visitor)
+        };
+      case "parens":
+        return {
+          Type: "parens",
+          Meta: root.Meta || void 0,
+          Source: visitTokens(root.Source, visitor)
+        };
+      case "binary_op":
+        return {
+          Type: "binary_op",
+          Meta: root.Meta || void 0,
+          Operator: root.Operator,
+          RightHandSide: visitTokens(root.RightHandSide, visitor),
+          LeftHandSide: visitTokens(root.LeftHandSide, visitor)
+        };
+      case "unary_op":
+        return {
+          Type: "unary_op",
+          Meta: root.Meta || void 0,
+          Operator: root.Operator,
+          RightHandSide: visitTokens(root.RightHandSide, visitor)
+        };
+      case "for":
+        return {
+          Type: "for",
+          Meta: root.Meta || void 0,
+          ForKeyVar: root.ForKeyVar,
+          ForValVar: root.ForValVar,
+          ForCollExpr: visitTokens(root.ForCollExpr, visitor),
+          ForKeyExpr: root.ForKeyExpr ? visitTokens(root.ForKeyExpr, visitor) : void 0,
+          ForValExpr: visitTokens(root.ForValExpr, visitor),
+          ForCondExpr: root.ForCondExpr ? visitTokens(root.ForCondExpr, visitor) : void 0
+        };
+    }
+  }
   function asStr(token) {
     if (typeof token === "string") {
       return token;
@@ -154,6 +257,12 @@
       Type: "function_call",
       FunctionName: funcName,
       FunctionArgs: args.map(asSyntax)
+    };
+  }
+  function asTemplate(arr) {
+    return {
+      Type: "template",
+      Parts: arr.map(asSyntax)
     };
   }
   function appendToTemplate(source, toAdd) {
@@ -319,13 +428,49 @@
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }
   var allGenerateSteps = ["pre_generate", "generate", "post_generate"];
-  var allApplySteps = ["pre_do", "pre_apply", "apply", "post_apply", "post_do"];
+  function barbeOutputDir() {
+    return os.getenv("BARBE_OUTPUT_DIR");
+  }
+  var BarbeState = {
+    readState: () => JSON.parse(os.file.readFile("__barbe_state.json")),
+    setValue: (key, value) => ({
+      Type: "barbe_state(set_value)",
+      Name: key,
+      Value: value
+    }),
+    deleteKey: (key) => ({
+      Type: "barbe_state(delete_key)",
+      Name: key,
+      Value: null
+    }),
+    putInObject: (key, value) => ({
+      Type: "barbe_state(put_in_object)",
+      Name: key,
+      Value: value
+    }),
+    getObjectValue: (state, key, valueKey) => state && state[key] && state[key][valueKey],
+    deleteFromObject: (key, valueKey) => ({
+      Type: "barbe_state(delete_from_object)",
+      Name: key,
+      Value: valueKey
+    })
+  };
 
-  // barbe-sls-lib/consts.ts
-  var AWS_ECR_REPOSITORY_WITH_IMAGE = "aws_ecr_repository_with_image";
+  // ../../anyfront/src/anyfront-lib/consts.ts
   var BARBE_SLS_VERSION = "v0.2.3";
-  var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
-  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION}`;
+  var ANYFRONT_VERSION = "v0.2.5";
+  var TERRAFORM_EXECUTE_URL = `https://hub.barbe.app/barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
+  var AWS_IAM_URL = `https://hub.barbe.app/barbe-serverless/aws_iam.js:${BARBE_SLS_VERSION}`;
+  var AWS_LAMBDA_URL = `https://hub.barbe.app/barbe-serverless/aws_function.js:${BARBE_SLS_VERSION}`;
+  var GCP_PROJECT_SETUP_URL = `https://hub.barbe.app/anyfront/gcp_project_setup.js:${ANYFRONT_VERSION}`;
+  var AWS_S3_SYNC_URL = `https://hub.barbe.app/anyfront/aws_s3_sync_files.js:${ANYFRONT_VERSION}`;
+  var FRONTEND_BUILD_URL = `https://hub.barbe.app/anyfront/frontend_build.js:${ANYFRONT_VERSION}`;
+  var GCP_CLOUDRUN_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/gcp_cloudrun_static_hosting.js:${ANYFRONT_VERSION}`;
+  var AWS_NEXT_JS_URL = `https://hub.barbe.app/anyfront/aws_next_js.js:${ANYFRONT_VERSION}`;
+  var GCP_NEXT_JS_URL = `https://hub.barbe.app/anyfront/gcp_next_js.js:${ANYFRONT_VERSION}`;
+  var AWS_SVELTEKIT_URL = `https://hub.barbe.app/anyfront/aws_sveltekit.js:${ANYFRONT_VERSION}`;
+  var AWS_CLOUDFRONT_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/aws_cloudfront_static_hosting.js:${ANYFRONT_VERSION}`;
+  var STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/static_hosting.js:${ANYFRONT_VERSION}`;
 
   // ../../anyfront/src/anyfront-lib/pipeline.ts
   function mergeDatabagContainers(...containers) {
@@ -349,6 +494,29 @@
       output[bag.Type][bag.Name].push(bag);
     }
     return output;
+  }
+  function addToStepOutput(original, ...outputs) {
+    for (const output of outputs) {
+      if (output.imports) {
+        if (!original.imports) {
+          original.imports = [];
+        }
+        original.imports.push(...output.imports);
+      }
+      if (output.databags) {
+        if (!original.databags) {
+          original.databags = [];
+        }
+        original.databags.push(...output.databags);
+      }
+      if (output.transforms) {
+        if (!original.transforms) {
+          original.transforms = [];
+        }
+        original.transforms.push(...output.transforms);
+      }
+    }
+    return original;
   }
   function executePipelineGroup(container2, pipelines) {
     const lifecycleStep = barbeLifecycleStep();
@@ -585,13 +753,152 @@
     return __awsCredsCached;
   }
 
+  // ../../anyfront/src/anyfront-lib/lib.ts
+  function prependTfStateFileName(tfBlock, prefix) {
+    const visitor = (token) => {
+      if (token.Type === "literal_value" && typeof token.Value === "string" && token.Value.includes(".tfstate")) {
+        return {
+          ...token,
+          Type: "literal_value",
+          Value: token.Value.replace(".tfstate", `${prefix}.tfstate`)
+        };
+      }
+      return null;
+    };
+    return visitTokens(tfBlock, visitor);
+  }
+  function autoDeleteMissingTfState(container2, bagType, onDelete) {
+    return autoDeleteMissing2(container2, {
+      bagType,
+      createSavable: (bagType2, bagName) => {
+        return prependTfStateFileName(container2["cr_[terraform]"][""][0].Value, `_${bagType2}_${bagName}`);
+      },
+      deleteMissing: (bagType2, bagName, savedValue) => {
+        const imports = [{
+          url: TERRAFORM_EXECUTE_URL,
+          input: [{
+            Type: "terraform_empty_execute",
+            Name: `auto_delete_${bagType2}_${bagName}`,
+            Value: {
+              display_name: `Destroy missing ${bagType2}.${bagName}`,
+              mode: "apply",
+              template_json: JSON.stringify({
+                // :)
+                //turn the saved json objects back into a `terraform {}` block
+                terraform: (() => {
+                  let tfObj = {};
+                  for (const [key, value] of Object.entries(savedValue)) {
+                    if (!value || key === "Meta") {
+                      continue;
+                    }
+                    tfObj[key] = {
+                      [value[0].Meta?.Labels[0]]: (() => {
+                        let obj = {};
+                        for (const [innerKey, innerValue] of Object.entries(value[0])) {
+                          if (!innerValue || innerKey === "Meta") {
+                            continue;
+                          }
+                          obj[innerKey] = innerValue;
+                        }
+                        return obj;
+                      })()
+                    };
+                  }
+                  return tfObj;
+                })()
+              })
+            }
+          }]
+        }];
+        let output = { imports };
+        if (onDelete) {
+          addToStepOutput(output, onDelete(bagType2, bagName, savedValue));
+        }
+        return output;
+      }
+    });
+  }
+  function autoDeleteMissing2(container2, input) {
+    const state = BarbeState.readState();
+    const STATE_KEY_NAME = "auto_delete_missing_tracker";
+    const applyPipe = pipeline([], { name: `auto_delete_${input.bagType}` });
+    applyPipe.pushWithParams({ name: "delete_missing", lifecycleSteps: ["apply", "destroy"] }, () => {
+      if (!container2["cr_[terraform]"]) {
+        return;
+      }
+      const stateObj = state[STATE_KEY_NAME];
+      if (!stateObj) {
+        return;
+      }
+      let output = {
+        databags: [],
+        imports: [],
+        transforms: []
+      };
+      for (const [bagName, savedValue] of Object.entries(stateObj)) {
+        if (!savedValue || bagName === "Meta") {
+          continue;
+        }
+        if (container2?.[input.bagType]?.[bagName]) {
+          continue;
+        }
+        const deleteMissing = input.deleteMissing(input.bagType, bagName, savedValue);
+        output.databags.push(...deleteMissing.databags || []);
+        output.imports.push(...deleteMissing.imports || []);
+        output.transforms.push(...deleteMissing.transforms || []);
+      }
+      return output;
+    });
+    applyPipe.pushWithParams({ name: "cleanup_state", lifecycleSteps: ["post_apply"] }, () => {
+      if (!container2["cr_[terraform]"]) {
+        return;
+      }
+      const databags = Object.keys(container2?.[input.bagType] || {}).map((bagName) => BarbeState.putInObject(STATE_KEY_NAME, {
+        [bagName]: input.createSavable(input.bagType, bagName)
+      }));
+      for (const [bagName, savedValue] of Object.entries(state[STATE_KEY_NAME] || {})) {
+        if (!savedValue || bagName === "Meta") {
+          continue;
+        }
+        if (container2?.[input.bagType]?.[bagName]) {
+          continue;
+        }
+        databags.push(BarbeState.deleteFromObject(STATE_KEY_NAME, bagName));
+      }
+      return { databags };
+    });
+    applyPipe.pushWithParams({ name: "cleanup_state_destroy", lifecycleSteps: ["post_destroy"] }, () => {
+      const databags = [];
+      for (const [bagName, savedValue] of Object.entries(state[STATE_KEY_NAME] || {})) {
+        if (bagName === "Meta") {
+          continue;
+        }
+        databags.push(BarbeState.deleteFromObject(STATE_KEY_NAME, bagName));
+      }
+    });
+    return applyPipe;
+  }
+
+  // barbe-sls-lib/consts.ts
+  var AWS_ECR_REPOSITORY_WITH_IMAGE = "aws_ecr_repository_with_image";
+  var BARBE_SLS_VERSION2 = "v0.2.3";
+  var TERRAFORM_EXECUTE_URL2 = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION2}`;
+  var AWS_NETWORK_URL = `barbe-serverless/aws_network.js:${BARBE_SLS_VERSION2}`;
+  var AWS_ECR_REPOSITORY_WITH_IMAGE_URL = `barbe-serverless/aws_ecr_repository_with_image.js:${BARBE_SLS_VERSION2}`;
+
   // aws_ecr_repository_with_image.ts
   var container = readDatabagContainer();
   function awsEcsIterator(bag) {
     const [block, namePrefix] = applyDefaults(container, bag.Value);
-    const cloudResource = preConfCloudResourceFactory(block, "resource");
-    const cloudData = preConfCloudResourceFactory(block, "data");
-    const cloudOutput = preConfCloudResourceFactory(block, "output");
+    const dir = `aws_ecr_repository_with_image_${bag.Name}`;
+    const bagPreconf = {
+      dir,
+      id: dir
+    };
+    const cloudResource = preConfCloudResourceFactory(block, "resource", void 0, bagPreconf);
+    const cloudOutput = preConfCloudResourceFactory(block, "output", void 0, bagPreconf);
+    const cloudTerraform = preConfCloudResourceFactory(block, "terraform", void 0, bagPreconf);
+    const mainCloudData = preConfCloudResourceFactory(block, "data");
     const traversalTransform = preConfTraversalTransform(bag);
     const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || "us-east-1");
     const dotContainerImage = compileBlockParam(block, "container_image");
@@ -599,22 +906,40 @@
     const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
     let pipe = pipeline([]);
     pipe.pushWithParams({ name: "resources", lifecycleSteps: allGenerateSteps }, () => {
-      let imageUrl;
       let databags = [];
       databags.push(
         cloudResource("aws_ecr_repository", `aws_ecr_wi_${bag.Name}_ecr_repository`, {
           name: appendToTemplate(namePrefix, [bag.Name]),
           force_delete: true
         }),
-        cloudOutput("", `aws_ecr_wi_${bag.Name}_ecr_repository`, {
+        cloudOutput("", `aws_ecr_wi_${bag.Name}_ecr_repository_url`, {
           value: asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.repository_url`)
         }),
-        traversalTransform(`aws_ecr_repository_with_image_transforms`, {
-          [`aws_ecr_repository_with_image.${bag.Name}`]: `aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository`
+        cloudOutput("", `aws_ecr_wi_${bag.Name}_ecr_repository_name`, {
+          value: asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.name`)
+        }),
+        mainCloudData("aws_ecr_image", `aws_ecr_wi_${bag.Name}_ecr_image`, {
+          repository_name: appendToTemplate(namePrefix, [bag.Name]),
+          image_tag: "latest"
         })
       );
+      if (container["cr_[terraform]"]) {
+        databags.push(cloudTerraform("", "", prependTfStateFileName(container["cr_[terraform]"][""][0].Value, `_${AWS_ECR_REPOSITORY_WITH_IMAGE}_${bag.Name}`)));
+      }
+      let imageUrl;
       if (hasProvidedImage && !shouldCopyProvidedImage) {
+        imageUrl = block.image || dotContainerImage.image;
+      } else if (block.repository_url) {
+        imageUrl = block.repository_url;
       } else {
+        imageUrl = asTemplate([
+          // `596618590882.dkr.ecr.us-east-1.amazonaws.com/impulse-beit-dev-subdec-repo:latest`
+          asTraversal("data.aws_caller_identity.current.account_id"),
+          ".dkr.ecr.",
+          awsRegion,
+          ".amazonaws.com/",
+          appendToTemplate(namePrefix, [bag.Name])
+        ]);
         const dontExpireImages = asVal(block.dont_expire_images || asSyntax(false));
         if (!dontExpireImages) {
           let policy;
@@ -660,14 +985,51 @@
           );
         }
       }
+      databags.push(
+        traversalTransform(`aws_ecr_repository_with_image_transforms`, {
+          [`aws_ecr_repository_with_image.${bag.Name}.latest_image_digest`]: `data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`
+        }),
+        {
+          Type: "traversal_map",
+          Name: "aws_ecr_repository_with_image_map",
+          Value: {
+            [`aws_ecr_repository_with_image.${bag.Name}.repository_url`]: imageUrl,
+            [`aws_ecr_repository_with_image.${bag.Name}.image_uri`]: asTemplate([
+              imageUrl,
+              "@",
+              asTraversal(`data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`)
+            ])
+          }
+        }
+      );
       return { databags };
     });
-    pipe.pushWithParams({ name: "deploy", lifecycleSteps: allApplySteps }, (input) => {
-      if (!container.terraform_execute_output?.default_apply) {
+    if (block.skip_build && asVal(block.skip_build)) {
+      return pipe;
+    }
+    pipe.pushWithParams({ name: "deploy_repo", lifecycleSteps: ["pre_do"] }, (input) => {
+      const imports = [{
+        name: "aws_ecr_repository_with_image_apply",
+        url: TERRAFORM_EXECUTE_URL2,
+        input: [{
+          Type: "terraform_execute",
+          Name: `aws_ecr_repository_with_image_${bag.Name}`,
+          Value: {
+            display_name: `Terraform apply - aws_ecr_repository_with_image.${bag.Name}`,
+            mode: "apply",
+            dir: `${barbeOutputDir()}/${dir}`
+          }
+        }]
+      }];
+      return { imports };
+    });
+    pipe.pushWithParams({ name: "build_img", lifecycleSteps: ["pre_do"] }, (input) => {
+      if (!input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`]) {
         return {};
       }
-      const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
-      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository`).value);
+      const tfOutput = asValArrayConst(input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`][0].Value);
+      const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_url`).value);
+      const repoName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_name`).value);
       if (hasProvidedImage && shouldCopyProvidedImage) {
         const providedImage = asStr(block.image || dotContainerImage.image);
         let loginCommand = "";
@@ -764,7 +1126,26 @@
         return { transforms };
       }
     });
+    pipe.pushWithParams({ name: "tf_destroy", lifecycleSteps: ["destroy"] }, () => {
+      const imports = [{
+        name: "aws_ecr_repository_with_image_destroy",
+        url: TERRAFORM_EXECUTE_URL2,
+        input: [{
+          Type: "terraform_execute",
+          Name: `aws_ecr_repository_with_image_destroy_${bag.Name}`,
+          Value: {
+            display_name: `Terraform destroy - aws_ecr_repository_with_image.${bag.Name}`,
+            mode: "destroy",
+            dir: `${barbeOutputDir()}/${dir}`
+          }
+        }]
+      }];
+      return { imports };
+    });
     return pipe;
   }
-  executePipelineGroup(container, iterateBlocks(container, AWS_ECR_REPOSITORY_WITH_IMAGE, awsEcsIterator).flat());
+  executePipelineGroup(container, [
+    ...iterateBlocks(container, AWS_ECR_REPOSITORY_WITH_IMAGE, awsEcsIterator).flat(),
+    autoDeleteMissingTfState(container, AWS_ECR_REPOSITORY_WITH_IMAGE)
+  ]);
 })();

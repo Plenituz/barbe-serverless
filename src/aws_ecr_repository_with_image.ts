@@ -1,15 +1,13 @@
 import {
-    allApplySteps,
     allGenerateSteps,
     appendToTemplate, asFuncCall,
     asStr, asSyntax, asTemplate, asTraversal, asVal, asValArrayConst,
-    barbeLifecycleStep, Databag,
-    exportDatabags,
-    importComponents,
+    barbeOutputDir, Databag,
     iterateBlocks,
     readDatabagContainer, statFile, SugarCoatedDatabag, SyntaxToken, throwStatement
 } from "./barbe-std/utils";
-import {AWS_ECR_REPOSITORY_WITH_IMAGE, AWS_FARGATE_SERVICE} from "./barbe-sls-lib/consts";
+import {autoDeleteMissingTfState, prependTfStateFileName} from "../../anyfront/src/anyfront-lib/lib";
+import {AWS_ECR_REPOSITORY_WITH_IMAGE, AWS_FARGATE_SERVICE, TERRAFORM_EXECUTE_URL} from "./barbe-sls-lib/consts";
 import {Pipeline, executePipelineGroup, pipeline, StepInput} from '../../anyfront/src/anyfront-lib/pipeline';
 import {
     applyDefaults,
@@ -19,14 +17,21 @@ import {
     preConfTraversalTransform
 } from "./barbe-sls-lib/lib";
 import {isSuccess} from "./barbe-std/rpc";
+import {AWS_NEXT_JS} from "../../anyfront/src/anyfront-lib/consts";
 
 const container = readDatabagContainer()
 
 function awsEcsIterator(bag: Databag): Pipeline {
     const [block, namePrefix] = applyDefaults(container, bag.Value!);
-    const cloudResource = preConfCloudResourceFactory(block, 'resource')
-    const cloudData = preConfCloudResourceFactory(block, 'data')
-    const cloudOutput = preConfCloudResourceFactory(block, 'output')
+    const dir = `aws_ecr_repository_with_image_${bag.Name}`
+    const bagPreconf = {
+        dir,
+        id: dir
+    }
+    const cloudResource = preConfCloudResourceFactory(block, 'resource', undefined, bagPreconf)
+    const cloudOutput = preConfCloudResourceFactory(block, 'output', undefined, bagPreconf)
+    const cloudTerraform = preConfCloudResourceFactory(block, 'terraform', undefined, bagPreconf)
+    const mainCloudData = preConfCloudResourceFactory(block, 'data')
     const traversalTransform = preConfTraversalTransform(bag)
 
     const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || 'us-east-1')
@@ -36,25 +41,43 @@ function awsEcsIterator(bag: Databag): Pipeline {
     let pipe = pipeline([])
 
     pipe.pushWithParams({ name: 'resources', lifecycleSteps: allGenerateSteps }, () => {
-        let imageUrl: SyntaxToken
         let databags: SugarCoatedDatabag[] = []
         databags.push(
             cloudResource('aws_ecr_repository', `aws_ecr_wi_${bag.Name}_ecr_repository`, {
                 name: appendToTemplate(namePrefix, [bag.Name]),
                 force_delete: true
             }),
-            cloudOutput('', `aws_ecr_wi_${bag.Name}_ecr_repository`, {
+            cloudOutput('', `aws_ecr_wi_${bag.Name}_ecr_repository_url`, {
                 value: asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.repository_url`),
             }),
-            traversalTransform(`aws_ecr_repository_with_image_transforms`, {
-                [`aws_ecr_repository_with_image.${bag.Name}`]: `aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository`,
+            cloudOutput('', `aws_ecr_wi_${bag.Name}_ecr_repository_name`, {
+                value: asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.name`),
+            }),
+            mainCloudData('aws_ecr_image', `aws_ecr_wi_${bag.Name}_ecr_image`, {
+                repository_name: appendToTemplate(namePrefix, [bag.Name]),
+                image_tag: 'latest',
             }),
         )
-        if(hasProvidedImage && !shouldCopyProvidedImage) {
+        if(container['cr_[terraform]']) {
+            databags.push(cloudTerraform('', '', prependTfStateFileName(container['cr_[terraform]'][''][0].Value!, `_${AWS_ECR_REPOSITORY_WITH_IMAGE}_${bag.Name}`)))
+        }
+        let imageUrl: SyntaxToken
+        if (hasProvidedImage && !shouldCopyProvidedImage) {
             //image is provided and we dont copy it, skip creating ecr altogether
             //note that this wil put constraints on the networking security/subnet stuff because fargate needs to pull the image
-            // imageUrl = block.image || dotContainerImage.image!
+            imageUrl = block.image || dotContainerImage.image!
+        } else if (block.repository_url) {
+            imageUrl = block.repository_url
         } else {
+            imageUrl = asTemplate([
+                // `596618590882.dkr.ecr.us-east-1.amazonaws.com/impulse-beit-dev-subdec-repo:latest`
+                asTraversal('data.aws_caller_identity.current.account_id'),
+                '.dkr.ecr.',
+                awsRegion,
+                '.amazonaws.com/',
+                appendToTemplate(namePrefix, [bag.Name]),
+            ])
+            //asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.repository_url`)
             const dontExpireImages = asVal(block.dont_expire_images || asSyntax(false))
             if(!dontExpireImages) {
                 let policy: SyntaxToken
@@ -100,15 +123,52 @@ function awsEcsIterator(bag: Databag): Pipeline {
                 )
             }
         }
+        databags.push(
+            traversalTransform(`aws_ecr_repository_with_image_transforms`, {
+                [`aws_ecr_repository_with_image.${bag.Name}.latest_image_digest`]: `data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`,
+            }),
+            {
+                Type: 'traversal_map',
+                Name: 'aws_ecr_repository_with_image_map',
+                Value: {
+                    [`aws_ecr_repository_with_image.${bag.Name}.repository_url`]: imageUrl,
+                    [`aws_ecr_repository_with_image.${bag.Name}.image_uri`]: asTemplate([
+                        imageUrl,
+                        '@',
+                        asTraversal(`data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`)
+                    ]),
+                }
+            }
+        )
         return { databags }
     })
-    pipe.pushWithParams({ name: 'deploy', lifecycleSteps: allApplySteps }, (input: StepInput) => {
+    if(block.skip_build && asVal(block.skip_build)){
+        return pipe
+    }
+    pipe.pushWithParams({ name: 'deploy_repo', lifecycleSteps: ['pre_do'] }, (input: StepInput) => {
+        const imports = [{
+            name: 'aws_ecr_repository_with_image_apply',
+            url: TERRAFORM_EXECUTE_URL,
+            input: [{
+                Type: 'terraform_execute',
+                Name: `aws_ecr_repository_with_image_${bag.Name}`,
+                Value: {
+                    display_name: `Terraform apply - aws_ecr_repository_with_image.${bag.Name}`,
+                    mode: 'apply',
+                    dir: `${barbeOutputDir()}/${dir}`,
+                }
+            }]
+        }]
+        return { imports }
+    })
+    pipe.pushWithParams({ name: 'build_img', lifecycleSteps: ['pre_do'] }, (input: StepInput) => {
         // const container = input.previousStepResult
-        if(!container.terraform_execute_output?.default_apply) {
+        if(!input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`]) {
             return {}
         }
-        const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value!)
-        const imageUrl = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository`).value)
+        const tfOutput = asValArrayConst(input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`][0].Value!)
+        const imageUrl = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_url`).value)
+        const repoName = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_name`).value)
 
         if(hasProvidedImage && shouldCopyProvidedImage) {
             //copy image to ecr (or the provided repo url in imageUrl)
@@ -217,7 +277,26 @@ function awsEcsIterator(bag: Databag): Pipeline {
             return { transforms }
         }
     })
+    pipe.pushWithParams({ name: 'tf_destroy', lifecycleSteps: ['destroy'] }, () => {
+        const imports = [{
+            name: 'aws_ecr_repository_with_image_destroy',
+            url: TERRAFORM_EXECUTE_URL,
+            input: [{
+                Type: 'terraform_execute',
+                Name: `aws_ecr_repository_with_image_destroy_${bag.Name}`,
+                Value: {
+                    display_name: `Terraform destroy - aws_ecr_repository_with_image.${bag.Name}`,
+                    mode: 'destroy',
+                    dir: `${barbeOutputDir()}/${dir}`,
+                }
+            }]
+        }]
+        return { imports }
+    })
     return pipe
 }
 
-executePipelineGroup(container, iterateBlocks(container, AWS_ECR_REPOSITORY_WITH_IMAGE, awsEcsIterator).flat())
+executePipelineGroup(container, [
+    ...iterateBlocks(container, AWS_ECR_REPOSITORY_WITH_IMAGE, awsEcsIterator).flat(),
+    autoDeleteMissingTfState(container, AWS_ECR_REPOSITORY_WITH_IMAGE),
+])

@@ -1,8 +1,5 @@
 (() => {
   // barbe-std/rpc.ts
-  function isSuccess(resp) {
-    return resp.result !== void 0;
-  }
   function isFailure(resp) {
     return resp.error !== void 0;
   }
@@ -353,12 +350,6 @@
     }
     return resp.result;
   }
-  function statFile(fileName) {
-    return barbeRpcCall({
-      method: "statFile",
-      params: [fileName]
-    });
-  }
   function throwStatement(message) {
     throw new Error(message);
   }
@@ -369,6 +360,7 @@
   function barbeLifecycleStep() {
     return os.getenv("BARBE_LIFECYCLE_STEP");
   }
+  var allGenerateSteps = ["pre_generate", "generate", "post_generate"];
   function uniq(arr, key) {
     const seen = /* @__PURE__ */ new Set();
     return arr.filter((item) => {
@@ -383,6 +375,7 @@
 
   // barbe-sls-lib/consts.ts
   var AWS_FARGATE_SERVICE = "aws_fargate_service";
+  var AWS_ECR_REPOSITORY_WITH_IMAGE = "aws_ecr_repository_with_image";
   var AWS_NETWORK = "aws_network";
   var BARBE_SLS_VERSION = "v0.2.3";
   var TERRAFORM_EXECUTE_URL = `barbe-serverless/terraform_execute.js:${BARBE_SLS_VERSION}`;
@@ -841,11 +834,154 @@
     return { certArn, certRef, databags, domainNames };
   }
 
-  // aws_fargate_service.ts
+  // aws_fargate_service_v2.ts
   var container = readDatabagContainer();
-  function awsFargateServiceGenerateIterator(bag) {
+  function awsFargateServiceIterator(bag) {
     if (!bag.Value) {
-      return { databags: [], imports: [] };
+      return pipeline([]);
+    }
+    let pipe = pipeline([]);
+    const [block, namePrefix] = applyDefaults(container, bag.Value);
+    const dotNetwork = compileBlockParam(block, "network");
+    const dotEcrRepository = compileBlockParam(block, "ecr_repository");
+    pipe.pushWithParams({ name: "resources", lifecycleSteps: allGenerateSteps }, () => {
+      return {
+        databags: awsFargateServiceResources(bag),
+        imports: [
+          {
+            url: AWS_NETWORK_URL,
+            //copy over the fargate_service block just to notify the aws_network to create the right vpc endpoints
+            //we could also just add vpc_endpoints manually but just in case it changes in the future we let the aws_network handle it
+            copyFromContainer: [AWS_FARGATE_SERVICE],
+            input: [{
+              Type: AWS_NETWORK,
+              Name: `aws_fargate_service_${bag.Name}`,
+              Value: {
+                use_default_vpc: dotNetwork.use_default_vpc,
+                vpc_id: dotNetwork.vpc_id,
+                cidr_block: dotNetwork.cidr_block,
+                make_nat_gateway: dotNetwork.make_nat_gateway,
+                one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az,
+                name_prefix: [namePrefix]
+              }
+            }]
+          },
+          {
+            url: AWS_ECR_REPOSITORY_WITH_IMAGE_URL,
+            copyFromContainer: ["cr_[terraform]", "state_store"],
+            input: [{
+              Type: AWS_ECR_REPOSITORY_WITH_IMAGE,
+              Name: `${bag.Name}-ecr`,
+              Value: {
+                region: block.region,
+                image: block.image,
+                copy_image: block.copy_image,
+                container_image: block.container_image,
+                repository_url: block.repository_url,
+                policy: dotEcrRepository.policy,
+                max_untagged_count: dotEcrRepository.max_untagged_count,
+                dont_expire_images: dotEcrRepository.dont_expire_images,
+                expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
+                skip_build: block.skip_build,
+                name_prefix: [namePrefix]
+              }
+            }]
+          }
+        ]
+      };
+    });
+    pipe.pushWithParams({ name: "export_generate", lifecycleSteps: allGenerateSteps }, (input) => exportDatabags(input.previousStepResult));
+    pipe.pushWithParams({ name: "ecr_pre_do", lifecycleSteps: ["pre_do"] }, (input) => {
+      return {
+        imports: [
+          {
+            url: AWS_ECR_REPOSITORY_WITH_IMAGE_URL,
+            copyFromContainer: ["cr_[terraform]", "state_store"],
+            input: [{
+              Type: AWS_ECR_REPOSITORY_WITH_IMAGE,
+              Name: `${bag.Name}-ecr`,
+              Value: {
+                region: block.region,
+                image: block.image,
+                copy_image: block.copy_image,
+                container_image: block.container_image,
+                repository_url: block.repository_url,
+                policy: dotEcrRepository.policy,
+                max_untagged_count: dotEcrRepository.max_untagged_count,
+                dont_expire_images: dotEcrRepository.dont_expire_images,
+                expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
+                skip_build: block.skip_build,
+                name_prefix: [namePrefix]
+              }
+            }]
+          }
+        ]
+      };
+    });
+    pipe.pushWithParams({ name: "export_pre_do", lifecycleSteps: ["pre_do"] }, (input) => exportDatabags(input.previousStepResult));
+    pipe.pushWithParams({ name: "trigger_deploy", lifecycleSteps: ["post_apply"] }, (input) => {
+      if (!asVal(block.dont_redeploy_on_apply || asSyntax(false))) {
+        const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
+        const clusterName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_cluster`).value);
+        const serviceName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_service`).value);
+        const awsCreds = getAwsCreds();
+        if (!awsCreds) {
+          throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
+        }
+        const transforms = [{
+          Type: "buildkit_run_in_container",
+          Name: `aws_fargate_service_${bag.Name}_redeploy`,
+          Value: {
+            no_cache: true,
+            display_name: `Trigger deployment - aws_fargate_service.${bag.Name}`,
+            dockerfile: `
+                        FROM amazon/aws-cli:latest
+    
+                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
+                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
+                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
+                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
+                        ENV AWS_PAGER=""
+    
+                        RUN aws ecs update-service --service ${serviceName} --cluster ${clusterName} --force-new-deployment`
+          }
+        }];
+        return { transforms };
+      }
+    });
+    pipe.pushWithParams({ name: "ecr_destroy", lifecycleSteps: ["destroy"] }, (input) => {
+      return {
+        imports: [
+          {
+            url: AWS_ECR_REPOSITORY_WITH_IMAGE_URL,
+            copyFromContainer: ["cr_[terraform]", "state_store"],
+            input: [{
+              Type: AWS_ECR_REPOSITORY_WITH_IMAGE,
+              Name: `${bag.Name}-ecr`,
+              Value: {
+                region: block.region,
+                image: block.image,
+                copy_image: block.copy_image,
+                container_image: block.container_image,
+                repository_url: block.repository_url,
+                policy: dotEcrRepository.policy,
+                max_untagged_count: dotEcrRepository.max_untagged_count,
+                dont_expire_images: dotEcrRepository.dont_expire_images,
+                expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
+                skip_build: block.skip_build,
+                name_prefix: [namePrefix]
+              }
+            }]
+          }
+        ]
+      };
+    });
+    pipe.pushWithParams({ name: "export_destroy", lifecycleSteps: ["destroy"] }, (input) => exportDatabags(input.previousStepResult));
+    return pipe;
+  }
+  function awsFargateServiceResources(bag) {
+    if (!bag.Value) {
+      return [];
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
     const cloudResource = preConfCloudResourceFactory(block, "resource");
@@ -855,7 +991,6 @@
     const dotEnvironment = compileBlockParam(block, "environment");
     const dotAutoScaling = compileBlockParam(block, "auto_scaling");
     const dotContainerImage = compileBlockParam(block, "container_image");
-    const dotEcrRepository = compileBlockParam(block, "ecr_repository");
     const dotNetwork = compileBlockParam(block, "network");
     const dotLoadBalancer = compileBlockParam(block, "load_balancer");
     const cpu = block.cpu || 256;
@@ -888,27 +1023,8 @@
       );
     }
     let executionRole;
-    let imageUrl;
     let securityGroupId;
     let databags = [];
-    let imports = [{
-      url: AWS_NETWORK_URL,
-      //copy over the fargate_service block just to notify the aws_network to create the right vpc endpoints
-      //we could also just add vpc_endpoints manually but just in case it changes in the future we let the aws_network handle it
-      copyFromContainer: [AWS_FARGATE_SERVICE],
-      input: [{
-        Type: AWS_NETWORK,
-        Name: `aws_fargate_service_${bag.Name}`,
-        Value: {
-          use_default_vpc: dotNetwork.use_default_vpc,
-          vpc_id: dotNetwork.vpc_id,
-          cidr_block: dotNetwork.cidr_block,
-          make_nat_gateway: dotNetwork.make_nat_gateway,
-          one_nat_gateway_per_az: dotNetwork.one_nat_gateway_per_az,
-          name_prefix: [namePrefix]
-        }
-      }]
-    }];
     if (block.execution_role_arn) {
       executionRole = block.execution_role_arn;
     } else {
@@ -918,69 +1034,6 @@
           name: "ecsTaskExecutionRole"
         })
       );
-    }
-    if (hasProvidedImage && !shouldCopyProvidedImage) {
-      imageUrl = block.image || dotContainerImage.image;
-    } else if (block.repository_url) {
-      imageUrl = block.repository_url;
-    } else {
-      imageUrl = asTemplate([
-        asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`),
-        ":latest"
-      ]);
-      databags.push(
-        cloudResource("aws_ecr_repository", `aws_fargate_service_${bag.Name}_ecr_repository`, {
-          name: appendToTemplate(namePrefix, [`${bag.Name}-fs-ecr`]),
-          force_delete: true
-        }),
-        cloudOutput("", `aws_fargate_service_${bag.Name}_ecr_repository`, {
-          value: asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.repository_url`)
-        })
-      );
-      const dontExpireImages = asVal(dotEcrRepository.dont_expire_images || asSyntax(false));
-      if (!dontExpireImages) {
-        let policy;
-        if (dotEcrRepository.policy) {
-          policy = dotEcrRepository.policy;
-        } else if (dotEcrRepository.max_untagged_count) {
-          policy = asFuncCall("jsonencode", [{
-            rules: [{
-              rulePriority: 1,
-              description: "Expire untagged images",
-              selection: {
-                tagStatus: "untagged",
-                countType: "imageCountMoreThan",
-                countNumber: dotEcrRepository.max_untagged_count
-              },
-              action: {
-                type: "expire"
-              }
-            }]
-          }]);
-        } else {
-          policy = asFuncCall("jsonencode", [{
-            rules: [{
-              rulePriority: 1,
-              description: "Expire untagged images",
-              selection: {
-                tagStatus: "untagged",
-                countType: "sinceImagePushed",
-                countUnit: "days",
-                countNumber: dotEcrRepository.expire_untagged_after_days || 30
-              },
-              action: {
-                type: "expire"
-              }
-            }]
-          }]);
-        }
-        databags.push(
-          cloudResource("aws_ecr_lifecycle_policy", `aws_fargate_service_${bag.Name}_ecr_policy`, {
-            repository: asTraversal(`aws_ecr_repository.aws_fargate_service_${bag.Name}_ecr_repository.name`),
-            policy
-          })
-        );
-      }
     }
     if (block.security_group_id) {
       securityGroupId = block.security_group_id;
@@ -1298,7 +1351,6 @@
             );
           }
         } else if (portsToOpen.some((obj) => obj.port === "80" || obj.port === "443")) {
-          console.log("portsToOpen", JSON.stringify(portsToOpen));
           const eightyIsOpen = portsToOpen.some((obj) => obj.port === "80");
           const fourFourThreeIsOpen = portsToOpen.some((obj) => obj.port === "443");
           if (eightyIsOpen) {
@@ -1538,7 +1590,10 @@
           [[
             {
               name: containerName,
-              image: imageUrl,
+              image: asTemplate([
+                asTraversal(`aws_ecr_repository_with_image.${bag.Name}-ecr.repository_url`),
+                ":latest"
+              ]),
               cpu,
               memory,
               environment: Object.entries(dotEnvironment).map(([name, value]) => ({ name, value })),
@@ -1567,166 +1622,7 @@
         )
       })
     );
-    return { databags, imports };
+    return databags;
   }
-  function generate() {
-    const g = iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceGenerateIterator).flat();
-    exportDatabags(g.map((x) => x.databags).flat());
-    exportDatabags(importComponents(container, g.map((x) => x.imports).flat()));
-  }
-  function awsFargateServiceApplyIterator(bag) {
-    const [block, _] = applyDefaults(container, bag.Value);
-    const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || "us-east-1");
-    const dotContainerImage = compileBlockParam(block, "container_image");
-    const hasProvidedImage = !!(block.image || dotContainerImage.image);
-    const shouldCopyProvidedImage = asVal(block.copy_image || dotContainerImage.copy_image || asSyntax(true));
-    let pipe = pipeline([]);
-    if (!container.terraform_execute_output?.default_apply) {
-      return pipeline([]);
-    }
-    const tfOutput = asValArrayConst(container.terraform_execute_output?.default_apply[0].Value);
-    const imageUrl = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_ecr_repository`).value);
-    if (hasProvidedImage && shouldCopyProvidedImage) {
-      const providedImage = asStr(block.image || dotContainerImage.image);
-      let loginCommand = "";
-      if (!block.repository_url) {
-        loginCommand = `RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}`;
-      }
-      const awsCreds = getAwsCreds();
-      if (!awsCreds) {
-        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
-      }
-      pipe.push(() => {
-        const transforms = [{
-          Type: "buildkit_run_in_container",
-          Name: `${bag.Name}_aws_fargate_service_image_copy`,
-          Value: {
-            display_name: `Image copy - aws_fargate_service.${bag.Name}`,
-            no_cache: true,
-            dockerfile: `
-                        FROM amazon/aws-cli:latest
-                            
-                        # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
-                        RUN yum install -y yum-utils &&                             yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                             sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                             yum install docker-ce-cli -y
-    
-                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
-                        ENV AWS_PAGER=""
-    
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker pull ${providedImage}
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker tag ${providedImage} ${imageUrl}
-                        ${loginCommand}
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock docker push ${imageUrl}`
-          }
-        }];
-        return { transforms };
-      });
-    }
-    if (!hasProvidedImage) {
-      const baseDir = asStr(dotContainerImage.build_from || ".");
-      let dockerfileContent = asStr(block.dockerfile || dotContainerImage.dockerfile || throwStatement(`aws_fargate_service.${bag.Name} needs a 'dockerfile' (path or file content) or 'image' property`));
-      if (!dockerfileContent.includes("\n")) {
-        const isFileResult = statFile(dockerfileContent);
-        if (isSuccess(isFileResult)) {
-          if (isFileResult.result.isDir) {
-            throwStatement(`aws_fargate_service.${bag.Name}.dockerfile path is a directory`);
-          }
-          dockerfileContent = os.file.readFile(dockerfileContent);
-        }
-      }
-      const dotBuildArgs = compileBlockParam(dotContainerImage, "build_args");
-      const buildArgsStr = Object.entries(dotBuildArgs).map(([name, value]) => `--build-arg ${name}="${asStr(value)}"`).join(" ");
-      const preBuildCmd = asStr(dotContainerImage.pre_build_cmd || "") || "";
-      const buildCmd = asStr(dotContainerImage.build_cmd || "") || `docker build -f __barbe_dockerfile -t ${bag.Name}fsbarbeimg ${buildArgsStr} .`;
-      const tagCmd = asStr(dotContainerImage.tag_cmd || "") || `docker tag ${bag.Name}fsbarbeimg:latest ${imageUrl}:latest`;
-      const loginCmd = asStr(dotContainerImage.login_cmd || "") || `aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split("/")[0]}`;
-      const pushCmd = asStr(dotContainerImage.push_cmd || "") || `docker push ${imageUrl}:latest`;
-      const awsCreds = getAwsCreds();
-      if (!awsCreds) {
-        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
-      }
-      pipe.push(() => {
-        const transforms = [{
-          Type: "buildkit_run_in_container",
-          Name: `${bag.Name}_aws_fargate_service_image_build`,
-          Value: {
-            display_name: `Image build - aws_fargate_service.${bag.Name}`,
-            no_cache: true,
-            input_files: {
-              "__barbe_dockerfile": dockerfileContent
-            },
-            dockerfile: `
-                        FROM amazon/aws-cli:latest
-                        
-                        # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
-                        RUN yum install -y yum-utils &&                             yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo &&                             sed -i 's/$releasever/7/g' /etc/yum.repos.d/docker-ce.repo &&                             yum install docker-ce-cli -y
-    
-                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
-                        ENV AWS_PAGER=""
-                        # this is in case people want to overrid the docker commands
-                        ENV ECR_REPOSITORY="${imageUrl}"
-    
-                        COPY --from=src ./${baseDir} .
-                        COPY --from=src __barbe_dockerfile __barbe_dockerfile
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${preBuildCmd}
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${buildCmd}
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${tagCmd}
-    
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${loginCmd}
-                        RUN --mount=type=ssh,id=docker.sock,target=/var/run/docker.sock ${pushCmd}
-                    `
-          }
-        }];
-        return { transforms };
-      });
-    }
-    if (!asVal(block.dont_redeploy_on_apply || asSyntax(false))) {
-      const clusterName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_cluster`).value);
-      const serviceName = asStr(tfOutput.find((pair) => asStr(pair.key) === `aws_fargate_service_${bag.Name}_service`).value);
-      const awsCreds = getAwsCreds();
-      if (!awsCreds) {
-        throwStatement(`aws_fargate_service.${bag.Name} needs AWS credentials to build the image`);
-      }
-      pipe.push(() => {
-        const transforms = [{
-          Type: "buildkit_run_in_container",
-          Name: `aws_fargate_service_${bag.Name}_redeploy`,
-          Value: {
-            no_cache: true,
-            display_name: `Trigger deployment - aws_fargate_service.${bag.Name}`,
-            dockerfile: `
-                        FROM amazon/aws-cli:latest
-    
-                        ENV AWS_ACCESS_KEY_ID="${awsCreds.access_key_id}"
-                        ENV AWS_SECRET_ACCESS_KEY="${awsCreds.secret_access_key}"
-                        ENV AWS_SESSION_TOKEN="${awsCreds.session_token}"
-                        ENV AWS_REGION="${asStr(block.region || os.getenv("AWS_REGION") || "us-east-1")}"
-                        ENV AWS_PAGER=""
-    
-                        RUN aws ecs update-service --service ${serviceName} --cluster ${clusterName} --force-new-deployment`
-          }
-        }];
-        return { transforms };
-      });
-    }
-    return pipe;
-  }
-  function apply() {
-    executePipelineGroup(container, iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceApplyIterator).flat());
-  }
-  switch (barbeLifecycleStep()) {
-    case "pre_generate":
-    case "generate":
-    case "post_generate":
-      generate();
-      break;
-    case "post_apply":
-      apply();
-      break;
-  }
+  executePipelineGroup(container, iterateBlocks(container, AWS_FARGATE_SERVICE, awsFargateServiceIterator).flat());
 })();
