@@ -31,6 +31,8 @@ function awsEcsIterator(bag: Databag): Pipeline {
     }
     const cloudResource = preConfCloudResourceFactory(block, 'resource', undefined, bagPreconf)
     const cloudOutput = preConfCloudResourceFactory(block, 'output', undefined, bagPreconf)
+    const mainCloudData = preConfCloudResourceFactory(block, 'data')
+    const traversalTransform = preConfTraversalTransform(bag)
 
     const awsRegion = asStr(block.region || os.getenv("AWS_REGION") || 'us-east-1')
     const dotContainerImage = compileBlockParam(block, 'container_image')
@@ -39,7 +41,6 @@ function awsEcsIterator(bag: Databag): Pipeline {
     let pipe = pipeline([])
 
     pipe.pushWithParams({ name: 'resources', lifecycleSteps: allGenerateSteps }, () => {
-        let imageUrl: SyntaxToken
         let databags: SugarCoatedDatabag[] = []
         databags.push(
             cloudResource('aws_ecr_repository', `aws_ecr_wi_${bag.Name}_ecr_repository`, {
@@ -52,12 +53,26 @@ function awsEcsIterator(bag: Databag): Pipeline {
             cloudOutput('', `aws_ecr_wi_${bag.Name}_ecr_repository_name`, {
                 value: asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.name`),
             }),
+            mainCloudData('aws_ecr_image', `aws_ecr_wi_${bag.Name}_ecr_image`, {
+                repository_name: appendToTemplate(namePrefix, [bag.Name]),
+                image_tag: 'latest',
+            }),
         )
+        let imageUrl: SyntaxToken
         if(hasProvidedImage && !shouldCopyProvidedImage) {
             //image is provided and we dont copy it, skip creating ecr altogether
             //note that this wil put constraints on the networking security/subnet stuff because fargate needs to pull the image
-            // imageUrl = block.image || dotContainerImage.image!
+            imageUrl = block.image || dotContainerImage.image!
         } else {
+            imageUrl = asTemplate([
+                // `596618590882.dkr.ecr.us-east-1.amazonaws.com/impulse-beit-dev-subdec-repo:latest`
+                asTraversal('data.aws_caller_identity.current.account_id'),
+                '.dkr.ecr.',
+                awsRegion,
+                '.amazonaws.com/',
+                appendToTemplate(namePrefix, [bag.Name]),
+            ])
+            //asTraversal(`aws_ecr_repository.aws_ecr_wi_${bag.Name}_ecr_repository.repository_url`)
             const dontExpireImages = asVal(block.dont_expire_images || asSyntax(false))
             if(!dontExpireImages) {
                 let policy: SyntaxToken
@@ -103,8 +118,28 @@ function awsEcsIterator(bag: Databag): Pipeline {
                 )
             }
         }
+        databags.push(
+            traversalTransform(`aws_ecr_repository_with_image_transforms`, {
+                [`aws_ecr_repository_with_image.${bag.Name}.latest_image_digest`]: `data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`,
+            }),
+            {
+                Type: 'traversal_map',
+                Name: 'aws_ecr_repository_with_image_map',
+                Value: {
+                    [`aws_ecr_repository_with_image.${bag.Name}.repository_url`]: imageUrl,
+                    [`aws_ecr_repository_with_image.${bag.Name}.image_uri`]: asTemplate([
+                        imageUrl,
+                        '@',
+                        asTraversal(`data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`)
+                    ]),
+                }
+            }
+        )
         return { databags }
     })
+    if(block.skip_build && asVal(block.skip_build)){
+        return pipe
+    }
     pipe.pushWithParams({ name: 'deploy_repo', lifecycleSteps: ['pre_do'] }, (input: StepInput) => {
         const imports = [{
             name: 'aws_ecr_repository_with_image_apply',
@@ -121,12 +156,12 @@ function awsEcsIterator(bag: Databag): Pipeline {
         }]
         return { imports }
     })
-    pipe.pushWithParams({ name: 'deploy', lifecycleSteps: ['pre_apply'] }, (input: StepInput) => {
+    pipe.pushWithParams({ name: 'build_img', lifecycleSteps: ['pre_do'] }, (input: StepInput) => {
         // const container = input.previousStepResult
-        if(!container.terraform_execute_output?.aws_ecr_repository_with_image_apply) {
+        if(!input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`]) {
             return {}
         }
-        const tfOutput = asValArrayConst(container.terraform_execute_output?.aws_ecr_repository_with_image_apply[0].Value!)
+        const tfOutput = asValArrayConst(input.previousStepResult.terraform_execute_output?.[`aws_ecr_repository_with_image_${bag.Name}`][0].Value!)
         const imageUrl = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_url`).value)
         const repoName = asStr(tfOutput.find(pair => asStr(pair.key) === `aws_ecr_wi_${bag.Name}_ecr_repository_name`).value)
 
@@ -234,19 +269,7 @@ function awsEcsIterator(bag: Databag): Pipeline {
                 `,
                 }
             }]
-            const traversalTransform = preConfTraversalTransform(bag)
-            const mainCloudData = preConfCloudResourceFactory(block, 'data')
-            const databags: SugarCoatedDatabag[] = [
-                mainCloudData('aws_ecr_image', `aws_ecr_wi_${bag.Name}_ecr_image`, {
-                    repository_name: repoName,
-                    image_digest: 'latest',
-                }),
-                traversalTransform(`aws_ecr_repository_with_image_transforms`, {
-                    [`aws_ecr_repository_with_image.${bag.Name}.repository_url`]: imageUrl,
-                    [`aws_ecr_repository_with_image.${bag.Name}.latest_image_digest`]: `data.aws_ecr_image.aws_ecr_wi_${bag.Name}_ecr_image.image_digest`,
-                }),
-            ]
-            return { transforms, databags }
+            return { transforms }
         }
     })
     return pipe

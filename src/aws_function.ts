@@ -120,7 +120,7 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }),
             cloudResource("aws_lambda_provisioned_concurrency_config", `${bag.Name}_prov_conc`, {
                 function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
-                qualifier: asTraversal(`aws_lambda_alias.${bag.Name}_alias.function_name`),
+                qualifier: asTraversal(`aws_lambda_alias.${bag.Name}_alias.name`),
                 provisioned_concurrent_executions: dotProvisionedConc.value || dotProvisionedConc.min || 1,
             }),
         )

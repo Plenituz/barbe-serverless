@@ -1057,8 +1057,8 @@
         lifecycle: block.auto_scaling ? asBlock([{
           ignore_changes: [
             asTraversal("read_capacity"),
-            asTraversal("write_capacity"),
-            asTraversal("global_secondary_index")
+            asTraversal("write_capacity")
+            // asTraversal('global_secondary_index')
           ].concat(regions.length > 1 ? [asTraversal("replica")] : [])
         }]) : void 0,
         point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
