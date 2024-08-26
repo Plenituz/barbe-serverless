@@ -844,6 +844,7 @@
     const [block, namePrefix] = applyDefaults(container, bag.Value);
     const dotNetwork = compileBlockParam(block, "network");
     const dotEcrRepository = compileBlockParam(block, "ecr_repository");
+    const dotContainerImage = compileBlockParam(block, "container_image");
     pipe.pushWithParams({ name: "resources", lifecycleSteps: allGenerateSteps }, () => {
       return {
         databags: awsFargateServiceResources(bag),
@@ -882,7 +883,7 @@
                 max_untagged_count: dotEcrRepository.max_untagged_count,
                 dont_expire_images: dotEcrRepository.dont_expire_images,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
-                skip_build: block.skip_build,
+                skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
               }
             }]
@@ -910,7 +911,7 @@
                 max_untagged_count: dotEcrRepository.max_untagged_count,
                 dont_expire_images: dotEcrRepository.dont_expire_images,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
-                skip_build: block.skip_build,
+                skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
               }
             }]
@@ -968,7 +969,7 @@
                 max_untagged_count: dotEcrRepository.max_untagged_count,
                 dont_expire_images: dotEcrRepository.dont_expire_images,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
-                skip_build: block.skip_build,
+                skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
               }
             }]

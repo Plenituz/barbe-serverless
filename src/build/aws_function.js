@@ -643,10 +643,11 @@
           cloudResource("aws_cloudwatch_event_target", `${bag.Name}_${i}_schedule_target`, {
             rule: asTraversal(`aws_cloudwatch_event_rule.${bag.Name}_${i}_schedule.name`),
             target_id: "InvokeLambda",
+            input: event.input || null,
             arn: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`)
           }),
           cloudResource("aws_lambda_permission", `${bag.Name}_${i}_schedule_permission`, {
-            statement_id: "AllowExecutionFromEventBridge",
+            statement_id: "AllowExecutionFromEventBridge_" + i,
             action: "lambda:InvokeFunction",
             principal: "events.amazonaws.com",
             function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
