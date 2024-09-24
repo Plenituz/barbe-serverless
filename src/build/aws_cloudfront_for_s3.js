@@ -457,10 +457,32 @@
       ]
     };
   }
+  function asFuncCall(funcName, args) {
+    return {
+      Type: "function_call",
+      FunctionName: funcName,
+      FunctionArgs: args.map(asSyntax)
+    };
+  }
   function asTemplate(arr) {
     return {
       Type: "template",
       Parts: arr.map(asSyntax)
+    };
+  }
+  function appendToTemplate(source, toAdd) {
+    let parts = [];
+    if (source.Type === "template") {
+      parts = source.Parts?.slice() || [];
+    } else if (source.Type === "literal_value") {
+      parts = [source];
+    } else {
+      parts = [source];
+    }
+    parts.push(...toAdd.map(asSyntax));
+    return {
+      Type: "template",
+      Parts: parts
     };
   }
   function asBlock(arr) {
@@ -912,6 +934,7 @@
       cloudData,
       cloudResource
     });
+    const enabledLogs = block.enable_logging && asVal(block.enable_logging);
     let databags = [
       traversalTransform("aws_cf_for_s3_traversal_transform", {
         [`aws_cloudfront_for_s3.${bag.Name}`]: `aws_cloudfront_distribution.${bag.Name}_cf_for_s3`
@@ -969,7 +992,8 @@
           compress: true,
           origin_request_policy_id: block.origin_request_policy_id || asTraversal(`data.aws_cloudfront_origin_request_policy.${bag.Name}_cf_for_s3_cors_s3_origin.id`),
           cache_policy_id: block.cache_policy_id || asTraversal(`data.aws_cloudfront_cache_policy.${bag.Name}_cf_for_s3_caching_optimized.id`),
-          response_headers_policy_id: block.response_headers_policy_id || asTraversal(`data.aws_cloudfront_response_headers_policy.${bag.Name}_cf_for_s3_cors_w_preflight.id`)
+          response_headers_policy_id: block.response_headers_policy_id || asTraversal(`data.aws_cloudfront_response_headers_policy.${bag.Name}_cf_for_s3_cors_w_preflight.id`),
+          lambda_function_association: block.lambda_function_association || null
         }]),
         aliases: domainBlock?.domainNames || [],
         viewer_certificate: asBlock([
@@ -986,11 +1010,66 @@
               minimum_protocol_version: minimumProtocolVersion
             };
           })()
-        ])
+        ]),
+        logging_config: enabledLogs ? asBlock([{
+          include_cookies: false,
+          bucket: asTemplate([
+            asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.bucket`),
+            ".s3.amazonaws.com"
+          ]),
+          prefix: "logs"
+        }]) : null
       })
     ];
     if (domainBlock) {
       databags.push(...domainBlock.databags);
+    }
+    if (enabledLogs) {
+      databags.push(
+        cloudResource("aws_s3_bucket", `${bag.Name}_cf_logs`, {
+          bucket: appendToTemplate(namePrefix, [bag.Name, "-logs"]),
+          force_destroy: block.force_destroy
+        }),
+        cloudResource("aws_s3_bucket_acl", `${bag.Name}_cf_logs_acl`, {
+          acl: "log-delivery-write",
+          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.id`)
+        }),
+        cloudResource("aws_s3_bucket_ownership_controls", `${bag.Name}_cf_logs_ownership_controls`, {
+          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.id`),
+          rule: asBlock([{
+            object_ownership: "BucketOwnerPreferred"
+          }])
+        }),
+        cloudResource("aws_s3_bucket_public_access_block", `${bag.Name}_cf_logs_access_block`, {
+          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.id`),
+          block_public_acls: false,
+          block_public_policy: false,
+          ignore_public_acls: false,
+          restrict_public_buckets: false
+        }),
+        cloudResource("aws_s3_bucket_policy", `${bag.Name}_cf_logs_access_block`, {
+          bucket: asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.id`),
+          policy: asFuncCall("jsonencode", [{
+            Version: "2012-10-17",
+            Statement: [{
+              Action: "s3:PutObject",
+              Effect: "Allow",
+              Resource: asTemplate([
+                asTraversal(`aws_s3_bucket.${bag.Name}_cf_logs.arn`),
+                "/*"
+              ]),
+              Principal: {
+                Service: "cloudfront.amazonaws.com"
+              },
+              Condition: {
+                StringEquals: {
+                  "aws:SourceArn": asTraversal(`aws_cloudfront_distribution.${bag.Name}_cf_for_s3.arn`)
+                }
+              }
+            }]
+          }])
+        })
+      );
     }
     return databags;
   }
