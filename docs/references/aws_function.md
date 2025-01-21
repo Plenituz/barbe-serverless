@@ -165,6 +165,8 @@ environment {
 
 `event_s3` block attributes:
 
+&nbsp;&nbsp;&nbsp;&nbsp;`bucket` (Required, reference) Reference to an S3 bucket resource
+
 &nbsp;&nbsp;&nbsp;&nbsp;`events` (Optional, list of strings) The [S3 events](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-how-to-event-types-and-destinations.html#supported-notification-event-types) to trigger the function, defaults to "s3:*"
 
 &nbsp;&nbsp;&nbsp;&nbsp;`prefix` (Optional, string) If provided, only object keys that begin with the specified prefix will trigger the event

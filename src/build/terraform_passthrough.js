@@ -144,7 +144,7 @@
       }
       return {
         Type: `cr_[${bag.Type}]`,
-        Name: bag.Labels?.[0] || "",
+        Name: bag.Labels?.[0] || bag.Name || "",
         Value: bag.Value
       };
     }).flat()
