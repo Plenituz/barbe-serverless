@@ -59,7 +59,10 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     asTraversal("architectures")
                 ]
             }]),
-            environment: block.environment ? asBlock([{ variables: dotEnvironment }]) : undefined
+            environment: block.environment ? asBlock([{ variables: dotEnvironment }]) : undefined,
+            tags: {
+                Name: appendToTemplate(namePrefix, [bag.Name]),
+            }
         }),
         cloudResource("aws_cloudwatch_log_group", `${bag.Name}_lambda_logs`, {
             name: asTemplate([

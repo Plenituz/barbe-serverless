@@ -469,7 +469,10 @@
             asTraversal("architectures")
           ]
         }]),
-        environment: block.environment ? asBlock([{ variables: dotEnvironment }]) : void 0
+        environment: block.environment ? asBlock([{ variables: dotEnvironment }]) : void 0,
+        tags: {
+          Name: appendToTemplate(namePrefix, [bag.Name])
+        }
       }),
       cloudResource("aws_cloudwatch_log_group", `${bag.Name}_lambda_logs`, {
         name: asTemplate([
