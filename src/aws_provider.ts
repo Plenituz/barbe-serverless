@@ -55,7 +55,14 @@ if(findInBlocks(container, isAwsBlock)) {
     databags.push(cloudResourceRaw({
         name: 'aws',
         kind: 'provider',
-        id: 'default'
+        id: 'default',
+        value: {
+            default_tags: asBlock([{
+                tags: {
+                    BarbeStack: compileNamePrefix(container, null)
+                },
+            }])
+        }
     }))
 }
 exportDatabags(databags)
