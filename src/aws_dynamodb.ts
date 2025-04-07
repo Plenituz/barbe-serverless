@@ -391,12 +391,15 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 ignore_changes: [
                     asTraversal('read_capacity'), 
                     asTraversal('write_capacity'),
-                    // asTraversal('global_secondary_index')
+                    asTraversal('global_secondary_index')
                 ].concat(regions.length > 1 ? [asTraversal('replica')] : [])
             }]) : undefined,
             point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
                 enabled: block.enable_point_in_time_recovery
             }]) : undefined,
+            tags: {
+                Name: appendToTemplate(namePrefix, [bag.Name]),
+            }
         }),
         ...ddbStreamEvents.map(({event, bag: otherBag}, i) => {
             //otherBag is an aws_function block

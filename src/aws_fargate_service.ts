@@ -274,6 +274,9 @@ function awsFargateServiceGenerateIterator(bag: Databag): DBAndImport {
             security_groups: [securityGroupId],
             assign_public_ip: true,
         }]),
+        tags: {
+            Name: appendToTemplate(namePrefix, [bag.Name]),
+        },
     }
     if(block.auto_scaling && !asVal(dotAutoScaling.disabled || asSyntax(false))) {
         ecsService.lifecycle = asBlock([{

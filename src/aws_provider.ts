@@ -7,8 +7,9 @@ import {
     asVal,
     asStr,
     onlyRunForLifecycleSteps,
-    findInBlocks, Databag
+    findInBlocks, Databag, asBlock
 } from './barbe-std/utils';
+import {compileNamePrefix} from "./barbe-sls-lib/lib";
 
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
@@ -41,7 +42,12 @@ let databags = [
         id: region,
         value: {
             alias: region,
-            region
+            region,
+            default_tags: asBlock([{
+                tags: {
+                    BarbeStack: compileNamePrefix(container, null)
+                },
+            }])
         }
     })),
 ]

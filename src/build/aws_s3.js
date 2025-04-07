@@ -428,7 +428,10 @@
       }),
       cloudResource("aws_s3_bucket", `${bag.Name}_s3`, {
         bucket: appendToTemplate(namePrefix, [bag.Name]),
-        force_destroy: block.force_destroy
+        force_destroy: block.force_destroy,
+        tags: {
+          Name: appendToTemplate(namePrefix, [bag.Name])
+        }
       })
     ];
     if (block.object_lock_enabled) {

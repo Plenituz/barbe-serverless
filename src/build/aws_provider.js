@@ -188,6 +188,36 @@
       return token;
     }
   }
+  function asBlock(arr) {
+    return {
+      Type: "array_const",
+      Meta: { IsBlock: true },
+      ArrayConst: arr.map((obj) => {
+        if (typeof obj === "function") {
+          const { block, labels } = obj();
+          return {
+            Type: "object_const",
+            Meta: {
+              IsBlock: true,
+              Labels: labels
+            },
+            ObjectConst: Object.keys(block).map((key) => ({
+              Key: key,
+              Value: asSyntax(block[key])
+            }))
+          };
+        }
+        return {
+          Type: "object_const",
+          Meta: { IsBlock: true },
+          ObjectConst: Object.keys(obj).map((key) => ({
+            Key: key,
+            Value: asSyntax(obj[key])
+          }))
+        };
+      })
+    };
+  }
   function iterateAllBlocks(container2, func) {
     const types = Object.keys(container2);
     let output = [];
@@ -294,6 +324,52 @@
   var AWS_CLOUDFRONT_STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/aws_cloudfront_static_hosting.js:${ANYFRONT_VERSION}`;
   var STATIC_HOSTING_URL = `https://hub.barbe.app/anyfront/static_hosting.js:${ANYFRONT_VERSION}`;
 
+  // barbe-sls-lib/lib.ts
+  function compileNamePrefix(container2, block) {
+    let namePrefixes = [];
+    if (container2.global_default) {
+      const globalDefaults = Object.values(container2.global_default).flatMap((group) => group.map((block2) => block2.Value)).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...globalDefaults);
+    }
+    let defaultName = "";
+    if (block) {
+      const copyFrom = block.ObjectConst?.find((pair) => pair.Key === "copy_from");
+      if (copyFrom) {
+        defaultName = asStr(copyFrom.Value);
+      }
+    }
+    if (container2.default && container2.default[defaultName]) {
+      const defaults = container2.default[defaultName].map((bag) => bag.Value).filter((block2) => block2).flatMap((block2) => block2.ObjectConst?.filter((pair) => pair.Key === "name_prefix")).filter((block2) => block2).map((block2) => block2.Value);
+      namePrefixes.push(...defaults);
+    }
+    if (block) {
+      namePrefixes.push(...block.ObjectConst?.filter((pair) => pair.Key === "name_prefix").map((pair) => pair.Value) || []);
+    }
+    let output = {
+      Type: "template",
+      Parts: []
+    };
+    const mergeIn = (namePrefixToken) => {
+      switch (namePrefixToken.Type) {
+        case "literal_value":
+          output.Parts.push(namePrefixToken);
+          break;
+        case "template":
+          output.Parts.push(...namePrefixToken.Parts || []);
+          break;
+        case "array_const":
+          namePrefixToken.ArrayConst?.forEach(mergeIn);
+          break;
+        default:
+          console.log("unknown name_prefix type '", namePrefixToken.Type, "'");
+      }
+    };
+    for (const namePrefixToken of namePrefixes) {
+      mergeIn(namePrefixToken);
+    }
+    return output;
+  }
+
   // barbe-sls-lib/helpers.ts
   function listReferencedAWSRegions(container2) {
     const regionNames = iterateAllBlocks(container2, (bag) => {
@@ -343,7 +419,12 @@
       id: region,
       value: {
         alias: region,
-        region
+        region,
+        default_tags: asBlock([{
+          tags: {
+            BarbeStack: compileNamePrefix(container, null)
+          }
+        }])
       }
     }))
   ];

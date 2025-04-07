@@ -1064,7 +1064,10 @@
         }]) : void 0,
         point_in_time_recovery: block.enable_point_in_time_recovery ? asBlock([{
           enabled: block.enable_point_in_time_recovery
-        }]) : void 0
+        }]) : void 0,
+        tags: {
+          Name: appendToTemplate(namePrefix, [bag.Name])
+        }
       }),
       ...ddbStreamEvents.map(({ event, bag: otherBag }, i) => {
         if (!otherBag.Value) {

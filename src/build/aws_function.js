@@ -479,7 +479,10 @@
           "/aws/lambda/",
           asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`)
         ]),
-        retention_in_days: block.logs_retention_days || 30
+        retention_in_days: block.logs_retention_days || 30,
+        tags: {
+          Name: appendToTemplate(namePrefix, [bag.Name])
+        }
       })
     ];
     if (packageType === "Zip") {

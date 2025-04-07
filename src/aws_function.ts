@@ -70,6 +70,9 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`)
             ]),
             retention_in_days: block.logs_retention_days || 30,
+            tags: {
+                Name: appendToTemplate(namePrefix, [bag.Name]),
+            }
         }),
     ]
     if(packageType === 'Zip') {
