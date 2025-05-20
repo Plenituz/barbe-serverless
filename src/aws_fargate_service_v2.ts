@@ -671,6 +671,22 @@ function awsFargateServiceResources(bag: Databag): Databag[] {
             }
         }
         if(loadBalancerType === 'network') {
+            if(enableHttps) {
+                const dotDomain = compileBlockParam(dotLoadBalancer, 'domain')
+                const domainBlock = awsDomainBlockResources({
+                    dotDomain,
+                    domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+                    resourcePrefix: `aws_fargate_service_${bag.Name}`,
+                    apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+                    dontCreateCert: true,
+                    cloudData,
+                    cloudResource
+                })
+                if(!domainBlock) {
+                    throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`)
+                }
+                databags.push(...domainBlock.databags)
+            }
             databags.push(
                 ...portsToOpen.map(obj => cloudResource('aws_security_group_rule', `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.port}_lb_secgr_ingress`, {
                     type: 'ingress',
@@ -707,6 +723,7 @@ function awsFargateServiceResources(bag: Databag): Databag[] {
                                 protocol: 'TCP',
                                 vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
                                 target_type: 'ip',
+                                deregistration_delay: 3600,
                             })
                         ]
                     })

@@ -763,7 +763,7 @@
   }
 
   // barbe-sls-lib/helpers.ts
-  function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource }) {
+  function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource, dontCreateCert }) {
     const nameToken = dotDomain.name || dotDomain.names;
     if (!nameToken) {
       return null;
@@ -875,7 +875,8 @@
       }
     }
     if (!dotDomain.certificate_arn) {
-      if (dotDomain.existing_certificate_domain) {
+      if (dontCreateCert) {
+      } else if (dotDomain.existing_certificate_domain) {
         certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`);
         databags.push(
           cloudData("aws_acm_certificate", `${resourcePrefix}_imported_certificate`, {

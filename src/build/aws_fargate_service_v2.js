@@ -692,7 +692,7 @@
   }
 
   // barbe-sls-lib/helpers.ts
-  function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource }) {
+  function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource, dontCreateCert }) {
     const nameToken = dotDomain.name || dotDomain.names;
     if (!nameToken) {
       return null;
@@ -804,7 +804,8 @@
       }
     }
     if (!dotDomain.certificate_arn) {
-      if (dotDomain.existing_certificate_domain) {
+      if (dontCreateCert) {
+      } else if (dotDomain.existing_certificate_domain) {
         certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`);
         databags.push(
           cloudData("aws_acm_certificate", `${resourcePrefix}_imported_certificate`, {
@@ -1444,6 +1445,22 @@
         }
       }
       if (loadBalancerType === "network") {
+        if (enableHttps) {
+          const dotDomain = compileBlockParam(dotLoadBalancer, "domain");
+          const domainBlock = awsDomainBlockResources({
+            dotDomain,
+            domainValue: asTraversal(`aws_lb.${bag.Name}_fargate_lb.dns_name`),
+            resourcePrefix: `aws_fargate_service_${bag.Name}`,
+            apexHostedZoneId: asTraversal(`aws_lb.${bag.Name}_fargate_lb.zone_id`),
+            dontCreateCert: true,
+            cloudData,
+            cloudResource
+          });
+          if (!domainBlock) {
+            throwStatement(`missing 'name' on aws_fargate_service.${bag.Name}.load_balancer.domain`);
+          }
+          databags.push(...domainBlock.databags);
+        }
         databags.push(
           ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.port}_lb_secgr_ingress`, {
             type: "ingress",
@@ -1478,7 +1495,8 @@
                   port: obj.port,
                   protocol: "TCP",
                   vpc_id: asTraversal(`aws_network.aws_fargate_service_${bag.Name}.vpc.id`),
-                  target_type: "ip"
+                  target_type: "ip",
+                  deregistration_delay: 3600
                 })
               ];
             })

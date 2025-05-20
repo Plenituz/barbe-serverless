@@ -64,6 +64,7 @@ type awsDomainBlockResourcesInput = {
     apexHostedZoneId: SyntaxToken
     cloudData: PreConfFactory
     cloudResource: PreConfFactory
+    dontCreateCert?: boolean
 }
 type awsDomainBlockResourcesOutput = {
     certArn: SyntaxToken
@@ -73,7 +74,7 @@ type awsDomainBlockResourcesOutput = {
     // the inputed dotDomain.name or dotDomain.names as an array
     domainNames: SyntaxToken[]
 }
-export function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource }: awsDomainBlockResourcesInput): awsDomainBlockResourcesOutput | null {
+export function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix, apexHostedZoneId, cloudData, cloudResource, dontCreateCert }: awsDomainBlockResourcesInput): awsDomainBlockResourcesOutput | null {
     const nameToken = dotDomain.name || dotDomain.names
     if(!nameToken) {
         return null
@@ -188,7 +189,9 @@ export function awsDomainBlockResources({ dotDomain, domainValue, resourcePrefix
         }
     }
     if(!dotDomain.certificate_arn) {
-        if(dotDomain.existing_certificate_domain) {
+        if(dontCreateCert) {
+            // do nothing
+        } else if(dotDomain.existing_certificate_domain) {
             certArn = asTraversal(`data.aws_acm_certificate.${resourcePrefix}_imported_certificate.arn`)
             databags.push(
                 cloudData('aws_acm_certificate', `${resourcePrefix}_imported_certificate`, {
