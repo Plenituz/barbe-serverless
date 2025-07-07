@@ -995,6 +995,7 @@
     const dotContainerImage = compileBlockParam(block, "container_image");
     const dotNetwork = compileBlockParam(block, "network");
     const dotLoadBalancer = compileBlockParam(block, "load_balancer");
+    const dotEfs = compileBlockParam(block, "efs");
     const cpu = block.cpu || 256;
     const memory = block.memory || 512;
     const regionDataName = asStr(block.region || "current");
@@ -1511,6 +1512,23 @@
           })
         );
       }
+      if (block.efs) {
+        databags.push(
+          cloudResource("aws_efs_file_system", `${bag.Name}_fargate_efs`, {
+            tags: {
+              Name: appendToTemplate(namePrefix, [`${bag.Name}-fs-efs`])
+            }
+          }),
+          cloudResource("aws_efs_mount_target", `${bag.Name}_fargate_efs_mount`, {
+            for_each: asFuncCall("toset", [
+              asTraversal(`aws_network.aws_fargate_service_${bag.Name}.private_subnets.*.id`)
+            ]),
+            file_system_id: asTraversal(`aws_efs_file_system.${bag.Name}_fargate_efs.id`),
+            subnet_id: asTraversal("each.value"),
+            security_groups: [securityGroupId]
+          })
+        );
+      }
       databags.push(
         cloudResource("aws_lb", `${bag.Name}_fargate_lb`, {
           name: appendToTemplate(namePrefix, [`${bag.Name}-fs-lb`]),
@@ -1606,6 +1624,13 @@
           operating_system_family: block.operating_system_family || "LINUX",
           cpu_architecture: block.cpu_architecture || "X86_64"
         }]) : void 0,
+        volume: block.efs ? asBlock([{
+          name: "efs_volume",
+          efs_volume_configuration: asBlock([{
+            file_system_id: asTraversal(`aws_efs_file_system.${bag.Name}_fargate_efs.id`),
+            root_directory: dotEfs.root_directory || "/"
+          }])
+        }]) : void 0,
         container_definitions: asFuncCall(
           "jsonencode",
           //that's an array of arrays cause we're json marshalling a list of objects
@@ -1638,7 +1663,11 @@
                   hostPort: port,
                   protocol: "tcp"
                 }))
-              ]
+              ],
+              mountPoints: block.efs ? [{
+                sourceVolume: "efs_volume",
+                containerPath: dotEfs.container_path || "/mnt/efs"
+              }] : void 0
             }
           ]]
         )
