@@ -458,7 +458,7 @@
         architectures: [block.architecture || "x86_64"],
         layers: packageType === "Image" ? void 0 : block.layers || void 0,
         s3_bucket: packageType === "Zip" ? asTraversal("aws_s3_bucket.deployment_bucket.id") : void 0,
-        s3_key: packageType === "Zip" ? asTraversal(`aws_s3_object.${bag.Name}_package.id`) : void 0,
+        s3_key: packageType === "Zip" ? asTraversal(`aws_s3_object.${bag.Name}_package.key`) : void 0,
         source_code_hash: packageType === "Zip" ? asFuncCall("filebase64sha256", [packageLocation]) : void 0,
         image_uri: packageType === "Image" ? block.image_uri : void 0,
         // "architectures" causes a re-deploys even when unchanged, so we kind of have to add this.

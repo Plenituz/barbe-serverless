@@ -115,15 +115,15 @@ function lambdaRoleStatement(label: string, namePrefix: SyntaxToken, assumableBy
         statements.push({
             Action: 'dynamodb:*',
             Effect: 'Allow',
-            Resource: Object.keys(container[AWS_DYNAMODB]).map((dynamodbName) => asTemplate([
+            Resource: asTemplate([
                 'arn:',
                 asTraversal('data.aws_partition.current.partition'),
                 ':dynamodb:*:',
                 asTraversal('data.aws_caller_identity.current.account_id'),
                 ':table/',
-                asTraversal(`aws_dynamodb_table.${dynamodbName}_aws_dynamodb.name`),
+                namePrefix,
                 '*'
-            ]))
+            ])
         })
     }
     if(AWS_KINESIS_STREAM in container) {
@@ -403,4 +403,3 @@ exportDatabags([
     ...defaultRoles,
     ...iterateBlocks(container, AWS_IAM_LAMBDA_ROLE, awsIamLambdaRoleIterator).flat()
 ])
-
