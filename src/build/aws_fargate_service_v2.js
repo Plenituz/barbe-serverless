@@ -981,6 +981,17 @@
     pipe.pushWithParams({ name: "export_destroy", lifecycleSteps: ["destroy"] }, (input) => exportDatabags(input.previousStepResult));
     return pipe;
   }
+  function portSplit(portRange, index) {
+    if (portRange.indexOf("-") === -1) {
+      const port = parseInt(portRange);
+      return port;
+    }
+    const parts = portRange.split("-");
+    if (parts.length !== 2) {
+      throw new Error(`Invalid port range '${portRange}'`);
+    }
+    return parseInt(parts[index]);
+  }
   function awsFargateServiceResources(bag) {
     if (!bag.Value) {
       return [];
@@ -1059,8 +1070,8 @@
         ...portsToOpen.map((obj) => cloudResource("aws_security_group_rule", `aws_fargate_service_${bag.Name}_${obj.protocol}${obj.port}_secgr_ingress`, {
           type: "ingress",
           security_group_id: asTraversal(`aws_security_group.aws_fargate_service_${bag.Name}_secgr.id`),
-          from_port: parseInt(obj.port),
-          to_port: parseInt(obj.port),
+          from_port: portSplit(obj.port, 0),
+          to_port: portSplit(obj.port, 1),
           protocol: obj.protocol,
           cidr_blocks: ["0.0.0.0/0"]
         })),

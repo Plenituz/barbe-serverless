@@ -190,7 +190,7 @@ function awsEcsIterator(bag: Databag): Pipeline {
                     no_cache: true,
                     dockerfile: `
                     FROM amazon/aws-cli:latest
-                        
+
                     # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
                     RUN yum install -y yum-utils && \
                         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo && \
@@ -228,7 +228,8 @@ function awsEcsIterator(bag: Databag): Pipeline {
             const dotBuildArgs = compileBlockParam(dotContainerImage, 'build_args')
             const buildArgsStr = Object.entries(dotBuildArgs).map(([name, value]) => `--build-arg ${name}="${asStr(value!)}"`).join(' ')
             const preBuildCmd = asStr(dotContainerImage.pre_build_cmd || '') || ''
-            const buildCmd = asStr(dotContainerImage.build_cmd || '') || `docker build -f __barbe_dockerfile -t ${bag.Name}ecrwibarbeimg ${buildArgsStr} .`
+            const buildPlatform = asStr(dotContainerImage.build_platform || '')
+            const buildCmd = asStr(dotContainerImage.build_cmd || '') || `docker build ${buildPlatform ? '--platform ' + buildPlatform : ''} -f __barbe_dockerfile -t ${bag.Name}ecrwibarbeimg ${buildArgsStr} .`
             const tagCmd = asStr(dotContainerImage.tag_cmd || '') || `docker tag ${bag.Name}ecrwibarbeimg:latest ${imageUrl}:latest`
             const loginCmd = asStr(dotContainerImage.login_cmd || '') || `aws ecr get-login-password --region ${awsRegion} | docker login --username AWS --password-stdin ${imageUrl.split('/')[0]}`
             const pushCmd = asStr(dotContainerImage.push_cmd || '') || `docker push ${imageUrl}:latest`
@@ -248,7 +249,7 @@ function awsEcsIterator(bag: Databag): Pipeline {
                     },
                     dockerfile: `
                     FROM amazon/aws-cli:latest
-                    
+
                     # https://forums.docker.com/t/docker-ce-stable-x86-64-repo-not-available-https-error-404-not-found-https-download-docker-com-linux-centos-7server-x86-64-stable-repodata-repomd-xml/98965
                     RUN yum install -y yum-utils && \
                         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo && \
