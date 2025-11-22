@@ -48,7 +48,7 @@ function awsFunctionIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             layers: packageType === 'Image' ? undefined : (block.layers || undefined),
             s3_bucket: packageType === 'Zip' ? asTraversal("aws_s3_bucket.deployment_bucket.id") : undefined,
             s3_key: packageType === 'Zip' ? asTraversal(`aws_s3_object.${bag.Name}_package.key`) : undefined,
-            source_code_hash: packageType === 'Zip' ? asFuncCall("filebase64sha256", [packageLocation]) : undefined,
+            source_code_hash: block.override_source_code_hash || (packageType === 'Zip' ? asFuncCall("filebase64sha256", [packageLocation]) : undefined),
             image_uri: packageType === 'Image' ? block.image_uri : undefined,
 
             // "architectures" causes a re-deploys even when unchanged, so we kind of have to add this.
