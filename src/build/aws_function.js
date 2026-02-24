@@ -604,7 +604,7 @@
       ));
       databags.push(
         ...bucketTraversalsStr.map((traversalStr, i) => cloudResource("aws_lambda_permission", `${bag.Name}_${i}_s3_permission`, {
-          statement_id: "AllowExecutionFromS3Bucket",
+          statement_id_prefix: "AllowExecutionFromS3Bucket-",
           action: "lambda:InvokeFunction",
           principal: "s3.amazonaws.com",
           function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.function_name`),
