@@ -638,6 +638,32 @@
         }))
       );
     }
+    if (block.event_kinesis) {
+      const eventKinesis = asValArrayConst(block.event_kinesis);
+      databags.push(
+        ...eventKinesis.map((event, i) => cloudResource("aws_lambda_event_source_mapping", `${bag.Name}_${i}_kinesis_mapping`, {
+          event_source_arn: event.stream_arn,
+          enabled: event.enabled,
+          function_name: asTraversal(`aws_lambda_function.${bag.Name}_lambda.arn`),
+          batch_size: event.batch_size || 100,
+          starting_position: event.starting_position || "TRIM_HORIZON",
+          function_response_types: event.function_response_types,
+          parallelization_factor: event.parallelization_factor,
+          maximum_batching_window_in_seconds: event.maximum_batching_window_in_seconds,
+          maximum_record_age_in_seconds: event.maximum_record_age_in_seconds,
+          bisect_batch_on_function_error: event.bisect_batch_on_function_error,
+          tumbling_window_in_seconds: event.tumbling_window_in_seconds,
+          destination_config: event.on_failure_destination_arn ? asBlock([{
+            on_failure: asBlock([{
+              destination_arn: event.on_failure_destination_arn
+            }])
+          }]) : void 0,
+          filter_criteria: event.filter ? asBlock([{
+            filter: asBlock(asValArrayConst(event.filter).map((f) => ({ pattern: f.pattern })))
+          }]) : void 0
+        }))
+      );
+    }
     if (block.event_schedule) {
       const eventSchedules = asValArrayConst(block.event_schedule);
       databags.push(
