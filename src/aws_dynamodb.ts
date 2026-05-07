@@ -364,8 +364,8 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         cloudResource('aws_dynamodb_table', `${bag.Name}_aws_dynamodb`, {
             name: appendToTemplate(namePrefix, [bag.Name]),
             billing_mode: block.billing_mode || 'PROVISIONED',
-            read_capacity: block.read_capacity || 1,
-            write_capacity: block.write_capacity || 1,
+            read_capacity: block.read_capacity || 0,
+            write_capacity: block.write_capacity || 0,
             hash_key: block.hash_key,
             range_key: block.range_key,
             // streams are required when:
