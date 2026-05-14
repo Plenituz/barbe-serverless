@@ -773,8 +773,32 @@
   var ddbBackupPlan = [];
   if (ddbWithBackupEnabled.length > 0) {
     const cloudResource = preConfCloudResourceFactory({}, "resource");
+    const cloudData = preConfCloudResourceFactory({}, "data");
     const namePrefix = compileGlobalNamePrefix(container);
     ddbBackupPlan = [
+      cloudResource("aws_iam_role", "aws_ddb_backup_role", {
+        name: appendToTemplate(namePrefix, ["ddb-backup-role"]),
+        assume_role_policy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Principal: {
+                Service: "backup.amazonaws.com"
+              }
+            }
+          ]
+        })
+      }),
+      cloudResource("aws_iam_role_policy_attachment", "aws_ddb_backup_role_policy_attachment", {
+        role: asTraversal("aws_iam_role.aws_ddb_backup_role.name"),
+        policy_arn: asTemplate([
+          "arn:",
+          asTraversal("data.aws_partition.current.partition"),
+          ":iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
+        ])
+      }),
       cloudResource("aws_backup_plan", "aws_ddb_backup_plan", {
         name: appendToTemplate(namePrefix, ["ddb-backup-plan"]),
         rule: asBlock([{
@@ -787,11 +811,10 @@
         }])
       }),
       cloudResource("aws_backup_selection", `aws_ddb_backup_selection`, {
-        iam_role_arn: asTemplate([
-          "arn:aws:iam::",
-          asTraversal("data.aws_caller_identity.current.account_id"),
-          ":role/aws-service-role/backup.amazonaws.com/AWSServiceRoleForBackup"
-        ]),
+        depends_on: [
+          asTraversal("aws_iam_role_policy_attachment.aws_ddb_backup_role_policy_attachment")
+        ],
+        iam_role_arn: asTraversal("aws_iam_role.aws_ddb_backup_role.arn"),
         name: appendToTemplate(namePrefix, ["ddb-backup-selection"]),
         plan_id: asTraversal(`aws_backup_plan.aws_ddb_backup_plan.id`),
         resources: asSyntax(ddbWithBackupEnabled)
@@ -1032,8 +1055,8 @@
       cloudResource("aws_dynamodb_table", `${bag.Name}_aws_dynamodb`, {
         name: appendToTemplate(namePrefix, [bag.Name]),
         billing_mode: block.billing_mode || "PROVISIONED",
-        read_capacity: block.read_capacity || 1,
-        write_capacity: block.write_capacity || 1,
+        read_capacity: block.read_capacity || 0,
+        write_capacity: block.write_capacity || 0,
         hash_key: block.hash_key,
         range_key: block.range_key,
         // streams are required when:
