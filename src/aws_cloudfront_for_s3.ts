@@ -299,7 +299,7 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                     namePrefix,
                     bag.Name,
                 ]),
-                retention_in_days: block.cloudwatch_logs_retention_days || block.logs_retention_days || 30,
+                retention_in_days: block.cloudwatch_logs_retention_days || undefined,
             }),
             cloudResource('aws_cloudwatch_log_delivery_destination', `${bag.Name}_cf_logs_destination`, {
                 region: 'us-east-1',
