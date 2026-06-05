@@ -1169,7 +1169,7 @@
             namePrefix,
             bag.Name
           ]),
-          retention_in_days: block.cloudwatch_logs_retention_days || block.logs_retention_days || 30
+          retention_in_days: block.cloudwatch_logs_retention_days || void 0
         }),
         cloudResource("aws_cloudwatch_log_delivery_destination", `${bag.Name}_cf_logs_destination`, {
           region: "us-east-1",
