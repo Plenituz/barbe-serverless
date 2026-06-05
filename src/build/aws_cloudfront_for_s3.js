@@ -965,7 +965,13 @@
       cloudResource
     });
     const enabledLogs = block.enable_logging && asVal(block.enable_logging);
-    const enabledAthenaTable = enabledLogs && (block.enable_athena_table === void 0 || asVal(block.enable_athena_table));
+    const logType = enabledLogs ? asStr(block.logType || "s3") : "s3";
+    if (enabledLogs && !["s3", "cloudwatch"].includes(logType)) {
+      throw new Error(`invalid logType '${logType}' on aws_cloudfront_for_s3.${bag.Name}; expected either 's3' or 'cloudwatch'`);
+    }
+    const useS3Logs = enabledLogs && logType === "s3";
+    const useCloudWatchLogs = enabledLogs && logType === "cloudwatch";
+    const enabledAthenaTable = useS3Logs && (block.enable_athena_table === void 0 || asVal(block.enable_athena_table));
     let databags = [
       traversalTransform("aws_cf_for_s3_traversal_transform", {
         [`aws_cloudfront_for_s3.${bag.Name}`]: `aws_cloudfront_distribution.${bag.Name}_cf_for_s3`
@@ -1049,6 +1055,16 @@
     }
     if (enabledLogs) {
       databags.push(
+        cloudResource("aws_cloudwatch_log_delivery_source", `${bag.Name}_cf_logs_source`, {
+          region: "us-east-1",
+          name: `${bag.Name}-cf-logs-source`,
+          log_type: "ACCESS_LOGS",
+          resource_arn: asTraversal(`aws_cloudfront_distribution.${bag.Name}_cf_for_s3.arn`)
+        })
+      );
+    }
+    if (useS3Logs) {
+      databags.push(
         cloudResource("aws_s3_bucket", `${bag.Name}_cf_logs`, {
           bucket: appendToTemplate(namePrefix, [bag.Name, "-logs"]),
           force_destroy: block.force_destroy
@@ -1059,12 +1075,6 @@
           block_public_policy: true,
           ignore_public_acls: true,
           restrict_public_buckets: true
-        }),
-        cloudResource("aws_cloudwatch_log_delivery_source", `${bag.Name}_cf_logs_source`, {
-          region: "us-east-1",
-          name: `${bag.Name}-cf-logs-source`,
-          log_type: "ACCESS_LOGS",
-          resource_arn: asTraversal(`aws_cloudfront_distribution.${bag.Name}_cf_for_s3.arn`)
         }),
         cloudResource("aws_cloudwatch_log_delivery_destination", `${bag.Name}_cf_logs_destination`, {
           region: "us-east-1",
@@ -1149,6 +1159,32 @@
           })
         );
       }
+    }
+    if (useCloudWatchLogs) {
+      databags.push(
+        cloudResource("aws_cloudwatch_log_group", `${bag.Name}_cf_logs_group`, {
+          region: "us-east-1",
+          name: block.cloudwatch_logs_group_name || asTemplate([
+            "/aws/cloudfront/",
+            namePrefix,
+            bag.Name
+          ]),
+          retention_in_days: block.cloudwatch_logs_retention_days || block.logs_retention_days || 30
+        }),
+        cloudResource("aws_cloudwatch_log_delivery_destination", `${bag.Name}_cf_logs_destination`, {
+          region: "us-east-1",
+          name: `${bag.Name}-cf-logs-cloudwatch-destination`,
+          output_format: block.cloudwatch_logs_output_format || "json",
+          delivery_destination_configuration: asBlock([{
+            destination_resource_arn: asTraversal(`aws_cloudwatch_log_group.${bag.Name}_cf_logs_group.arn`)
+          }])
+        }),
+        cloudResource("aws_cloudwatch_log_delivery", `${bag.Name}_cf_logs_delivery`, {
+          region: "us-east-1",
+          delivery_source_name: asTraversal(`aws_cloudwatch_log_delivery_source.${bag.Name}_cf_logs_source.name`),
+          delivery_destination_arn: asTraversal(`aws_cloudwatch_log_delivery_destination.${bag.Name}_cf_logs_destination.arn`)
+        })
+      );
     }
     return databags;
   }
