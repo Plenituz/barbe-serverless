@@ -303,7 +303,7 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }),
             cloudResource('aws_cloudwatch_log_delivery_destination', `${bag.Name}_cf_logs_destination`, {
                 region: 'us-east-1',
-                name: appendToTemplate(namePrefix, [bag.Name, '-cf-logs-cloudwatch-destination']),
+                name: appendToTemplate(namePrefix, [bag.Name, '-cf-logs-cwd']),
                 output_format: block.cloudwatch_logs_output_format || 'json',
                 delivery_destination_configuration: asBlock([{
                     destination_resource_arn: asTraversal(`aws_cloudwatch_log_group.${bag.Name}_cf_logs_group.arn`),
