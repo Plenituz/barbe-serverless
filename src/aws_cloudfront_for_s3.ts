@@ -89,9 +89,9 @@ function awsCfForS3Iterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         cloudResource,
     })
     const enabledLogs = block.enable_logging && asVal(block.enable_logging)
-    const logType = enabledLogs ? asStr(block.logType || 's3') : 's3'
+    const logType = enabledLogs ? asStr(block.log_type || 's3') : 's3'
     if(enabledLogs && !['s3', 'cloudwatch'].includes(logType)) {
-        throw new Error(`invalid logType '${logType}' on aws_cloudfront_for_s3.${bag.Name}; expected either 's3' or 'cloudwatch'`)
+        throw new Error(`invalid log_type '${logType}' on aws_cloudfront_for_s3.${bag.Name}; expected either 's3' or 'cloudwatch'`)
     }
     const useS3Logs = enabledLogs && logType === 's3'
     const useCloudWatchLogs = enabledLogs && logType === 'cloudwatch'
