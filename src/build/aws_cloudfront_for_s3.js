@@ -1057,7 +1057,7 @@
       databags.push(
         cloudResource("aws_cloudwatch_log_delivery_source", `${bag.Name}_cf_logs_source`, {
           region: "us-east-1",
-          name: `${bag.Name}-cf-logs-source`,
+          name: appendToTemplate(namePrefix, [bag.Name, "-cf-logs-source"]),
           log_type: "ACCESS_LOGS",
           resource_arn: asTraversal(`aws_cloudfront_distribution.${bag.Name}_cf_for_s3.arn`)
         })
@@ -1078,7 +1078,7 @@
         }),
         cloudResource("aws_cloudwatch_log_delivery_destination", `${bag.Name}_cf_logs_destination`, {
           region: "us-east-1",
-          name: `${bag.Name}-cf-logs-s3-destination`,
+          name: appendToTemplate(namePrefix, [bag.Name, "-cf-logs-s3-destination"]),
           output_format: "parquet",
           delivery_destination_configuration: asBlock([{
             destination_resource_arn: asTemplate([
@@ -1100,8 +1100,8 @@
         })
       );
       if (enabledAthenaTable) {
-        const athenaDatabaseName = block.athena_database_name || `${bag.Name}_cf_logs`;
-        const athenaTableName = block.athena_table_name || `${bag.Name}_cf_logs`;
+        const athenaDatabaseName = block.athena_database_name || appendToTemplate(namePrefix, [bag.Name, "_cf_logs"]);
+        const athenaTableName = block.athena_table_name || appendToTemplate(namePrefix, [bag.Name, "_cf_logs"]);
         databags.push(
           cloudResource("aws_glue_catalog_database", `${bag.Name}_cf_logs_database`, {
             name: athenaDatabaseName
@@ -1173,7 +1173,7 @@
         }),
         cloudResource("aws_cloudwatch_log_delivery_destination", `${bag.Name}_cf_logs_destination`, {
           region: "us-east-1",
-          name: `${bag.Name}-cf-logs-cloudwatch-destination`,
+          name: appendToTemplate(namePrefix, [bag.Name, "-cf-logs-cloudwatch-destination"]),
           output_format: block.cloudwatch_logs_output_format || "json",
           delivery_destination_configuration: asBlock([{
             destination_resource_arn: asTraversal(`aws_cloudwatch_log_group.${bag.Name}_cf_logs_group.arn`)
