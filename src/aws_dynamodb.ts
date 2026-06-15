@@ -379,6 +379,8 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         )
     }
     const attributes = uniq(attributeCandidates, c => asStr(c.name))
+    const billingMode = block.billing_mode || 'PROVISIONED'
+    const isPayPerRequest = asStr(billingMode) === 'PAY_PER_REQUEST'
 
     let databags = [
         traversalTransform('aws_dynamodb_traversal_transform', {
@@ -386,9 +388,9 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         }),
         cloudResource('aws_dynamodb_table', `${bag.Name}_aws_dynamodb`, {
             name: appendToTemplate(namePrefix, [bag.Name]),
-            billing_mode: block.billing_mode || 'PROVISIONED',
-            read_capacity: block.read_capacity || 0,
-            write_capacity: block.write_capacity || 0,
+            billing_mode: billingMode,
+            read_capacity: isPayPerRequest ? undefined : block.read_capacity || 0,
+            write_capacity: isPayPerRequest ? undefined : block.write_capacity || 0,
             hash_key: block.hash_key,
             range_key: block.range_key,
             // streams are required when:
@@ -406,8 +408,10 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
                 name: ddbIndexName(gsi),
                 hash_key: gsi.hash_key,
                 range_key: gsi.range_key,
-                read_capacity: gsi.read_capacity || 1,
-                write_capacity: gsi.write_capacity || 1,
+                ...(!isPayPerRequest ? {
+                    read_capacity: gsi.read_capacity || 1,
+                    write_capacity: gsi.write_capacity || 1,
+                } : {}),
                 projection_type: gsi.projection_type || 'ALL'
             }))) : undefined,
             lifecycle: block.auto_scaling ? asBlock([{
