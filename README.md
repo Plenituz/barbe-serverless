@@ -97,6 +97,16 @@ Quick links:
 - [Installation](./docs/installation.md)
 - [Documentation](./docs/README.md)
 
+## Fargate service image deployments
+
+- `aws_fargate_service` resolves the selected ECR repository's `latest` image to a digest for its task definition. Applying after publishing a different image creates a task-definition revision and updates the service, including when `dont_redeploy_on_apply = true`.
+- `repository_url` selects an existing private ECR repository for publishing and digest resolution. The lookup and ECR login use that repository's account and region; the service does not create or manage its retention policy.
+- Building or copying to `repository_url` requires a concrete URL because publishing runs before the main Terraform apply. Terraform expressions in the URL can be used with `container_image.skip_build = true`.
+- An `image` with `copy_image = false` is used unchanged, including its tag or digest. This mode does not create an ECR repository, look up a digest, or build or copy an image. Changing a tag's contents alone does not create a task-definition revision.
+- `container_image.skip_build = true` skips repository updates as well as image building and publishing. Set it to `false` to apply repository changes, including retention policy updates. The main Terraform apply still resolves the existing `latest` image to its digest.
+- Fargate-managed repositories retain images by default so active deployments and rollback revisions remain pullable after `latest` moves. Retained images continue to consume ECR storage until explicitly removed.
+- Explicit `ecr_repository` retention settings override that default. Before enabling cleanup, ensure the policy retains every image needed by active deployments and supported rollbacks. A digest reference does not prevent ECR from deleting an image.
+
 
 ## What's inside?
 

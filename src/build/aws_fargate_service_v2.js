@@ -846,6 +846,9 @@
     const dotNetwork = compileBlockParam(block, "network");
     const dotEcrRepository = compileBlockParam(block, "ecr_repository");
     const dotContainerImage = compileBlockParam(block, "container_image");
+    const dontExpireImages = dotEcrRepository.dont_expire_images || asSyntax(
+      !dotEcrRepository.policy && !dotEcrRepository.max_untagged_count && !dotEcrRepository.expire_untagged_after_days
+    );
     pipe.pushWithParams({ name: "resources", lifecycleSteps: allGenerateSteps }, () => {
       return {
         databags: awsFargateServiceResources(bag),
@@ -882,7 +885,7 @@
                 repository_url: block.repository_url,
                 policy: dotEcrRepository.policy,
                 max_untagged_count: dotEcrRepository.max_untagged_count,
-                dont_expire_images: dotEcrRepository.dont_expire_images,
+                dont_expire_images: dontExpireImages,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
                 skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
@@ -910,7 +913,7 @@
                 repository_url: block.repository_url,
                 policy: dotEcrRepository.policy,
                 max_untagged_count: dotEcrRepository.max_untagged_count,
-                dont_expire_images: dotEcrRepository.dont_expire_images,
+                dont_expire_images: dontExpireImages,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
                 skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
@@ -968,7 +971,7 @@
                 repository_url: block.repository_url,
                 policy: dotEcrRepository.policy,
                 max_untagged_count: dotEcrRepository.max_untagged_count,
-                dont_expire_images: dotEcrRepository.dont_expire_images,
+                dont_expire_images: dontExpireImages,
                 expire_untagged_after_days: dotEcrRepository.expire_untagged_after_days,
                 skip_build: dotContainerImage.skip_build,
                 name_prefix: [namePrefix]
@@ -1648,10 +1651,7 @@
           [[
             {
               name: containerName,
-              image: asTemplate([
-                asTraversal(`aws_ecr_repository_with_image.${bag.Name}-ecr.repository_url`),
-                ":latest"
-              ]),
+              image: asTraversal(`aws_ecr_repository_with_image.${bag.Name}-ecr.image_uri`),
               cpu,
               memory,
               environment: Object.entries(dotEnvironment).map(([name, value]) => ({ name, value })),

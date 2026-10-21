@@ -128,7 +128,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             databags.push(
                 cloudResource('aws_eip', `aws_network_${bag.Name}_nat_gateway_eips`, {
                     count: asFuncCall('length', [asTraversal(`data.aws_availability_zones.${avZoneDataName}.names`)]),
-                    vpc: true,
+                    domain: 'vpc',
                     tags: {
                         Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway-eip-`, asTraversal('count.index')]),
                     }
@@ -151,7 +151,7 @@ function awsNetworkIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         } else {
             databags.push(
                 cloudResource('aws_eip', `aws_network_${bag.Name}_nat_gateway_eip`, {
-                    vpc: true,
+                    domain: 'vpc',
                     tags: {
                         Name: appendToTemplate(namePrefix, [`${bag.Name}-nat-gateway-eip`]),
                     }
