@@ -59,6 +59,45 @@ aws_function "stream-handler" {
 }
 ```
 
+#### An index with multiple partition and sort attributes
+
+```hcl
+aws_dynamodb "sending-status" {
+  hash_key = "UniqueMessageId"
+
+  global_secondary_index {
+    name = "attendee-message-history"
+
+    hash_keys = [
+      {
+        name = "EventId"
+      },
+      {
+        name = "HumanId"
+      },
+    ]
+
+    range_keys = [
+      {
+        name = "LastUpdateMs"
+        type = "N"
+      },
+      {
+        name = "UniqueMessageId"
+      },
+    ]
+  }
+}
+```
+
+This index groups messages by event and attendee, then sorts by `LastUpdateMs`
+with `UniqueMessageId` breaking ties. Query direction determines ascending or
+descending order. Attribute types default to `S`.
+
+For plural keys, use Terraform AWS provider 6.37.0 or newer. Barbe emits ordered
+`key_schema` blocks. These keys use the existing item attributes directly;
+no concatenated attributes are needed.
+
 ### A table with replicas in 3 different regions
 ```hcl
 aws_dynamodb "request-log" {
@@ -120,13 +159,24 @@ If a list is given, the first element is the primary region and the rest are the
 
 `global_secondary_index` attributes:
 
-&nbsp;&nbsp;&nbsp;&nbsp;`hash_key`: (Required, string) The name of the hash key
+&nbsp;&nbsp;&nbsp;&nbsp;`name`: (Optional, string) Explicit index name. Otherwise generated from the key names: attributes within each group are joined with `_`, the hash and range groups with `-`, followed by `-index`. For example, `EventId_HumanId-LastUpdateMs-index`. Existing single-key names are unchanged.
+
+&nbsp;&nbsp;&nbsp;&nbsp;`hash_key`: (Required unless `hash_keys` is supplied, string) The name of the hash key
 
 &nbsp;&nbsp;&nbsp;&nbsp;`hash_key_type`: (Optional, string) The type of the hash key, "S" (string), "N" (number) or "B" (binary), default to "S"
 
 &nbsp;&nbsp;&nbsp;&nbsp;`range_key`: (Optional, string) The name of the range key
 
 &nbsp;&nbsp;&nbsp;&nbsp;`range_key_type`: (Optional, string) The type of the range key, "S" (string), "N" (number) or "B" (binary), default to "S"
+
+&nbsp;&nbsp;&nbsp;&nbsp;`hash_keys`: (Optional, ordered list of objects) 1 to 4 attributes, each with required `name` and optional `type` (`S`, `N`, or `B`; defaults to `S`). Cannot be combined with `hash_key` or `hash_key_type`.
+
+&nbsp;&nbsp;&nbsp;&nbsp;`range_keys`: (Optional, ordered list of objects) 0 to 4 attributes in sort order, with the same shape as `hash_keys`. Cannot be combined with `range_key` or `range_key_type`.
+
+Plural keys are supported only on global secondary indexes. Singular and plural
+forms can be used on different sides of the same index, such as `hash_key` with
+`range_keys`. Each attribute may appear only once in an index's keys. Its type
+must agree across the table and all indexes.
 
 &nbsp;&nbsp;&nbsp;&nbsp;`read_capacity`: (Optional, number) The read capacity for the table. Defaults to 1
 
