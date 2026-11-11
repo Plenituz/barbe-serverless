@@ -6,6 +6,9 @@ import { runInNewContext } from 'node:vm';
 const component = readFileSync(new URL('../build/aws_dynamodb.js', import.meta.url), 'utf8');
 
 function syntax(value) {
+    if (value?.Type) {
+        return value;
+    }
     if (Array.isArray(value)) {
         return { Type: 'array_const', ArrayConst: value.map(syntax) };
     }
@@ -25,6 +28,7 @@ function value(token) {
         case 'scope_traversal': return token.Traversal.map(part => part.Name).join('.');
         case 'array_const': return token.ArrayConst.map(value);
         case 'object_const': return Object.fromEntries(token.ObjectConst.map(pair => [pair.Key, value(pair.Value)]));
+        default: return structuredClone(token);
     }
 }
 
@@ -95,6 +99,61 @@ test('singular configs retain names and scalar Terraform keys', () => {
     ]);
 });
 
+test('reused attributes inherit their established type when an index omits it', () => {
+    for (const type of ['N', 'B']) {
+        const result = table(generate({
+            hash_key: 'id',
+            hash_key_type: type,
+            range_key: 'sort',
+            range_key_type: type,
+            global_secondary_index: [
+                { hash_key: 'category', range_key: 'id' },
+                { hash_key: 'sort', range_key: 'time', range_key_type: type },
+                { hash_key: 'category', range_key: 'time' },
+                { hash_keys: [{ name: 'id' }, { name: 'time' }], range_keys: [{ name: 'sort' }] },
+            ],
+        }));
+        assert.deepEqual(result.attribute, [
+            { name: 'id', type },
+            { name: 'sort', type },
+            { name: 'category', type: 'S' },
+            { name: 'time', type },
+        ]);
+    }
+});
+
+test('shared attribute types preserve unresolved Terraform expressions', () => {
+    const functionType = {
+        Type: 'function_call',
+        FunctionName: 'upper',
+        FunctionArgs: [syntax('n')],
+    };
+    const variableType = {
+        Type: 'scope_traversal',
+        Traversal: [{ Type: 'attr', Name: 'var' }, { Type: 'attr', Name: 'key_type' }],
+    };
+    for (const [firstType, secondType] of [
+        [functionType, functionType],
+        [functionType, 'N'],
+        [variableType, 'N'],
+        ['N', functionType],
+        ['N', variableType],
+        [functionType, undefined],
+    ]) {
+        for (const index of [
+            { hash_key: 'category', range_key: 'id', ...(secondType ? { range_key_type: secondType } : {}) },
+            { hash_keys: [{ name: 'id', ...(secondType ? { type: secondType } : {}) }] },
+        ]) {
+            const result = table(generate({
+                hash_key: 'id',
+                hash_key_type: firstType,
+                global_secondary_index: [index],
+            }));
+            assert.deepEqual(result.attribute.find(attribute => attribute.name === 'id').type, value(syntax(firstType)));
+        }
+    }
+});
+
 test('explicit names are used by the index and its autoscaling targets', () => {
     for (const keys of [multiIndex, { hash_key: 'EventId' }]) {
         const resources = generate({
@@ -147,5 +206,10 @@ test('invalid key definitions fail before exporting Terraform', () => {
     assert.throws(() => generate({
         hash_key: 'id',
         global_secondary_index: [{ hash_key: 'EventId' }, { hash_keys: [{ name: 'EventId', type: 'N' }] }],
+    }), /conflicting types/);
+    assert.throws(() => generate({
+        hash_key: 'id',
+        hash_key_type: 'N',
+        global_secondary_index: [{ hash_key: 'category', range_key: 'id', range_key_type: 'S' }],
     }), /conflicting types/);
 });

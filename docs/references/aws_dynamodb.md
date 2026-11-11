@@ -176,7 +176,10 @@ If a list is given, the first element is the primary region and the rest are the
 Plural keys are supported only on global secondary indexes. Singular and plural
 forms can be used on different sides of the same index, such as `hash_key` with
 `range_keys`. Each attribute may appear only once in an index's keys. Its type
-must agree across the table and all indexes.
+must agree across the table and all indexes. An omitted index attribute type
+reuses the first definition of that attribute, or defaults to `S` if the
+attribute is new. Terraform expressions for types are passed through unchanged;
+only statically known type conflicts are rejected during generation.
 
 &nbsp;&nbsp;&nbsp;&nbsp;`read_capacity`: (Optional, number) The read capacity for the table. Defaults to 1
 

@@ -380,6 +380,21 @@
         };
     }
   }
+  function isSimpleTemplate(token) {
+    if (!token) {
+      return false;
+    }
+    if (typeof token === "string" || token.Type === "literal_value") {
+      return true;
+    }
+    if (token.Type !== "template") {
+      return false;
+    }
+    if (!token.Parts) {
+      return true;
+    }
+    return token.Parts.every(isSimpleTemplate);
+  }
   function asVal(token) {
     switch (token.Type) {
       case "template":
@@ -714,13 +729,13 @@
         }
         return {
           name: key.name,
-          type: key.type || "S"
+          type: key.type
         };
       });
     } else if (single) {
       keys = [{
         name: single,
-        type: singleType || "S"
+        type: singleType
       }];
     }
     if (keys.length > 4 || kind === "hash" && keys.length === 0) {
@@ -1078,11 +1093,11 @@
     for (const attribute of attributeCandidates) {
       const name = asStr(attribute.name);
       const previous = attributesByName.get(name);
-      if (previous && asStr(previous.type) !== asStr(attribute.type)) {
+      if (previous && attribute.type && isSimpleTemplate(previous.type) && isSimpleTemplate(attribute.type) && asStr(previous.type) !== asStr(attribute.type)) {
         throw new Error(`DynamoDB table '${bag.Name}': conflicting types for attribute '${name}'`);
       }
       if (!previous) {
-        attributesByName.set(name, attribute);
+        attributesByName.set(name, { ...attribute, type: attribute.type || "S" });
       }
     }
     const attributes = [...attributesByName.values()];

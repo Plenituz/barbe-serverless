@@ -6,11 +6,11 @@ import {
     preConfCloudResourceFactory,
     preConfTraversalTransform
 } from './barbe-sls-lib/lib';
-import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, mergeTokens, asTemplate, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
+import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, mergeTokens, asTemplate, asSyntax, isSimpleTemplate, onlyRunForLifecycleSteps } from './barbe-std/utils';
 
 type DynamoAttribute = {
     name: SyntaxToken,
-    type: SyntaxToken | string,
+    type?: SyntaxToken | string,
 }
 
 type DynamoIndex = {
@@ -37,13 +37,13 @@ function indexKeys(config: DatabagObjVal, kind: 'hash' | 'range', label: string)
             }
             return {
                 name: key.name,
-                type: key.type || 'S',
+                type: key.type,
             }
         })
     } else if (single) {
         keys = [{
             name: single,
-            type: singleType || 'S',
+            type: singleType,
         }]
     }
     if (keys.length > 4 || (kind === 'hash' && keys.length === 0)) {
@@ -427,15 +427,18 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             ...dotGlobalSecondaryIndex.flatMap(gsi => [...gsi.hashKeys, ...gsi.rangeKeys])
         )
     }
-    const attributesByName = new Map<string, DynamoAttribute>()
+    const attributesByName = new Map<string, Required<DynamoAttribute>>()
     for (const attribute of attributeCandidates) {
         const name = asStr(attribute.name)
         const previous = attributesByName.get(name)
-        if (previous && asStr(previous.type) !== asStr(attribute.type)) {
+        // Omitted types reuse the first definition; Terraform expressions remain unevaluated.
+        if (previous && attribute.type &&
+            isSimpleTemplate(previous.type) && isSimpleTemplate(attribute.type) &&
+            asStr(previous.type) !== asStr(attribute.type)) {
             throw new Error(`DynamoDB table '${bag.Name}': conflicting types for attribute '${name}'`)
         }
         if (!previous) {
-            attributesByName.set(name, attribute)
+            attributesByName.set(name, { ...attribute, type: attribute.type || 'S' })
         }
     }
     const attributes = [...attributesByName.values()]
