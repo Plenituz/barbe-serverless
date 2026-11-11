@@ -107,6 +107,59 @@ Quick links:
 - Fargate-managed repositories retain images by default so active deployments and rollback revisions remain pullable after `latest` moves. Retained images continue to consume ECR storage until explicitly removed.
 - Explicit `ecr_repository` retention settings override that default. Before enabling cleanup, ensure the policy retains every image needed by active deployments and supported rollbacks. A digest reference does not prevent ECR from deleting an image.
 
+## Sharing Fargate infrastructure
+
+Reference another service with `infrastructure_from` to reuse its ECS cluster, VPC, subnets, NAT gateways, and load balancer. Each service keeps its own task definition, deployment, security group, logs, image repository, and scaling settings.
+
+```hcl
+aws_fargate_service "compiler" {
+  infrastructure_from = aws_fargate_service.mcp
+  cpu = 1024
+  memory = 2048
+  desired_count = 1
+  task_accessibility = "private"
+  mapped_ports = [8080]
+
+  secrets {
+    COMPILER_TOKEN = aws_secretsmanager_secret_version.compiler.arn
+  }
+
+  load_balancer {
+    path_patterns = ["/internal/compile"]
+    priority = 100
+    deregistration_delay = 30
+    health_check {
+      path = "/health"
+      matcher = "204"
+    }
+  }
+
+  health_check_grace_period_seconds = 30
+  wait_for_steady_state = true
+  deployment_circuit_breaker {
+    enable = true
+    rollback = true
+  }
+
+  container_image {
+    dockerfile = "compiler/Dockerfile"
+  }
+}
+```
+
+- The referenced service must own the infrastructure in the same configuration. Configure its network and domain there. The sharing service inherits its region.
+- For shared HTTP routing, the owner must have an application load balancer with one mapped container port. The new service also has one mapped port. Barbe uses the owner's HTTPS listener when it has a domain, otherwise HTTP.
+- Each route needs `path_patterns` and a `priority` unique on that listener. The path is forwarded unchanged. The owner's default route keeps serving its original service.
+- Shared services default to private subnets without a public IP. Their mapped ports accept traffic from the shared load balancer's security group. `task_accessibility` and `assign_public_ip` can override placement and IP assignment.
+- Omit `load_balancer` for workers that only need the shared cluster and network.
+- `secrets` maps container environment variable names to complete Secrets Manager ARNs. Reference a secret version's ARN to order initial deployment after its value is created. Values stay out of task-definition environment variables.
+- When `secrets` is present, Barbe creates an execution role with image-pull, logging, and access to those secrets. If you supply `execution_role_arn`, that role must already have the required permissions. Secrets encrypted with a customer-managed KMS key require a supplied role with decrypt access.
+- ECS reads secret values when tasks start; rotate running tasks after updating a secret value.
+- `role` remains the application task role; use `role = null` for containers that do not call AWS APIs.
+- Deployment controls include `health_check_grace_period_seconds`, `wait_for_steady_state`, and `deployment_circuit_breaker`. Standard ECS deployment defaults apply unless minimum/maximum healthy percentages or `platform_version` are supplied.
+
+Run the component's focused generation checks with `node src/aws_fargate_service_v2.test.mjs`.
+
 
 ## What's inside?
 
