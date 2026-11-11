@@ -6,7 +6,51 @@ import {
     preConfCloudResourceFactory,
     preConfTraversalTransform
 } from './barbe-sls-lib/lib';
-import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, uniq, mergeTokens, asTemplate, asSyntax, onlyRunForLifecycleSteps } from './barbe-std/utils';
+import { readDatabagContainer, Databag, SugarCoatedDatabag, exportDatabags, iterateBlocks, asValArrayConst, asStr, asTraversal, asBlock, appendToTraversal, SyntaxToken, asVal, appendToTemplate, mergeTokens, asTemplate, asSyntax, isSimpleTemplate, onlyRunForLifecycleSteps } from './barbe-std/utils';
+
+type DynamoAttribute = {
+    name: SyntaxToken,
+    type?: SyntaxToken | string,
+}
+
+type DynamoIndex = {
+    config: DatabagObjVal,
+    hashKeys: DynamoAttribute[],
+    rangeKeys: DynamoAttribute[],
+}
+
+function indexKeys(config: DatabagObjVal, kind: 'hash' | 'range', label: string): DynamoAttribute[] {
+    const single = config[`${kind}_key`]
+    const multiple = config[`${kind}_keys`]
+    const singleType = config[`${kind}_key_type`]
+    if (multiple && (single || singleType)) {
+        throw new Error(`${label}: ${kind}_keys cannot be combined with ${kind}_key or ${kind}_key_type`)
+    }
+    let keys: DynamoAttribute[] = []
+    if (multiple) {
+        if (multiple.Type !== 'array_const') {
+            throw new Error(`${label}: ${kind}_keys must be a list of attributes`)
+        }
+        keys = asValArrayConst(multiple).map((key: DatabagObjVal) => {
+            if (!key.name || !asStr(key.name)) {
+                throw new Error(`${label}: each ${kind}_keys attribute requires a name`)
+            }
+            return {
+                name: key.name,
+                type: key.type,
+            }
+        })
+    } else if (single) {
+        keys = [{
+            name: single,
+            type: singleType,
+        }]
+    }
+    if (keys.length > 4 || (kind === 'hash' && keys.length === 0)) {
+        throw new Error(`${label}: ${kind}_keys requires ${kind === 'hash' ? '1' : '0'} to 4 attributes`)
+    }
+    return keys
+}
 
 const container = readDatabagContainer()
 onlyRunForLifecycleSteps(['pre_generate', 'generate', 'post_generate'])
@@ -139,6 +183,9 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
         return []
     }
     const [block, namePrefix] = applyDefaults(container, bag.Value);
+    if (block.hash_keys || block.range_keys) {
+        throw new Error(`DynamoDB table '${bag.Name}': multi-attribute keys are only supported on global secondary indexes`)
+    }
     if(!block.hash_key) {
         throw new Error(`DynamoDB table '${bag.Name}' has no hash_key`)
     }
@@ -159,30 +206,38 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
 
     const cloudResource = preConfCloudResourceFactory(block, 'resource', { provider })
     const traversalTransform = preConfTraversalTransform(bag)
-    const indexResourceName = (gsi: DatabagObjVal, suffix: string) => {
-        let toHash = asStr(gsi.hash_key!)
-        if(gsi.range_key) {
-            toHash += asStr(gsi.range_key)
+    const indexResourceName = (gsi: DynamoIndex, suffix: string) => {
+        // Keep existing autoscaling resource addresses for single-key configs.
+        let toHash = asStr(ddbIndexName(gsi))
+        if (!gsi.config.name && !gsi.config.hash_keys && !gsi.config.range_keys) {
+            toHash = asStr(gsi.config.hash_key!)
+            if (gsi.config.range_key) {
+                toHash += asStr(gsi.config.range_key)
+            }
         }
         return `${bag.Name}_${md5(toHash)}_${suffix}`
     }
-    const ddbIndexName = (gsi: DatabagObjVal) => {
-        if(gsi.range_key){
-            return appendToTemplate(gsi.hash_key!, ['-', gsi.range_key, '-index'])
+    const ddbIndexName = (gsi: DynamoIndex) => {
+        if (gsi.config.name) {
+            return gsi.config.name
         }
-        return appendToTemplate(gsi.hash_key!, ['-index'])
+        return appendToTemplate(gsi.hashKeys[0].name, [
+            ...gsi.hashKeys.slice(1).flatMap(key => ['_', key.name]),
+            ...gsi.rangeKeys.flatMap((key, i) => [i === 0 ? '-' : '_', key.name]),
+            '-index',
+        ])
     }
-    const indexDotAutoScaling = (gsi: DatabagObjVal): DatabagObjVal => {
+    const indexDotAutoScaling = (gsi: DynamoIndex): DatabagObjVal => {
         return asVal(mergeTokens([
             ...(block.auto_scaling?.ArrayConst || []),
-            ...(gsi.auto_scaling?.ArrayConst || [])
+            ...(gsi.config.auto_scaling?.ArrayConst || [])
         ]))
     }
     const makeAutoScalingResourceGroup = (params: {
         cloudResource: (type: string, name: string, value: string) => Databag, 
         prefix: string,
         dotAutoScaling: {[k: string]: any | undefined},
-        gsi?: DatabagObjVal,
+        gsi?: DynamoIndex,
         dependsOn?: SyntaxToken[],
     }) => {
         return [
@@ -338,13 +393,24 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }))
         }).flat()
     }).flat()
-    const dotGlobalSecondaryIndex: DatabagObjVal[] | undefined = block.global_secondary_index ? asValArrayConst(block.global_secondary_index) : undefined
-    
-    type AttrCandidate = { 
-        type: SyntaxToken | string, 
-        name: SyntaxToken | string 
-    }
-    let attributeCandidates: AttrCandidate[] = [
+    const dotGlobalSecondaryIndex: DynamoIndex[] | undefined = block.global_secondary_index
+        ? asValArrayConst(block.global_secondary_index).map((config: DatabagObjVal, i) => {
+            const label = `DynamoDB index '${bag.Name}.global_secondary_index[${i}]'`
+            const hashKeys = indexKeys(config, 'hash', label)
+            const rangeKeys = indexKeys(config, 'range', label)
+            const names = [...hashKeys, ...rangeKeys].map(key => asStr(key.name))
+            if (new Set(names).size !== names.length) {
+                throw new Error(`${label}: key attributes must be unique`)
+            }
+            return {
+                config,
+                hashKeys,
+                rangeKeys,
+            }
+        })
+        : undefined
+
+    let attributeCandidates: DynamoAttribute[] = [
         {
             name: block.hash_key,
             type: block.hash_key_type || 'S'
@@ -358,27 +424,24 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
     }
     if (dotGlobalSecondaryIndex) {
         attributeCandidates.push(
-            ...dotGlobalSecondaryIndex.map((gsi, i) => {
-                if(!gsi.hash_key) {
-                    throw new Error(`DynamoDB global secondary index '${bag.Name}.global_secondary_index[${i}]' has no hash_key`)
-                }
-                let gsiAttrs: AttrCandidate[] = [
-                    {
-                        name: gsi.hash_key,
-                        type: gsi.hash_key_type || 'S'
-                    }
-                ]
-                if (gsi.range_key) {
-                    gsiAttrs.push({
-                        name: gsi.range_key,
-                        type: gsi.range_key_type || 'S'
-                    })
-                }
-                return gsiAttrs
-            }).flat()
+            ...dotGlobalSecondaryIndex.flatMap(gsi => [...gsi.hashKeys, ...gsi.rangeKeys])
         )
     }
-    const attributes = uniq(attributeCandidates, c => asStr(c.name))
+    const attributesByName = new Map<string, Required<DynamoAttribute>>()
+    for (const attribute of attributeCandidates) {
+        const name = asStr(attribute.name)
+        const previous = attributesByName.get(name)
+        // Omitted types reuse the first definition; Terraform expressions remain unevaluated.
+        if (previous && attribute.type &&
+            isSimpleTemplate(previous.type) && isSimpleTemplate(attribute.type) &&
+            asStr(previous.type) !== asStr(attribute.type)) {
+            throw new Error(`DynamoDB table '${bag.Name}': conflicting types for attribute '${name}'`)
+        }
+        if (!previous) {
+            attributesByName.set(name, { ...attribute, type: attribute.type || 'S' })
+        }
+    }
+    const attributes = [...attributesByName.values()]
     const billingMode = block.billing_mode || 'PROVISIONED'
     const isPayPerRequest = asStr(billingMode) === 'PAY_PER_REQUEST'
 
@@ -406,13 +469,26 @@ function awsDynamodbIterator(bag: Databag): (Databag | SugarCoatedDatabag)[] {
             }]) : undefined,
             global_secondary_index: dotGlobalSecondaryIndex ? asBlock(dotGlobalSecondaryIndex.map(gsi => ({
                 name: ddbIndexName(gsi),
-                hash_key: gsi.hash_key,
-                range_key: gsi.range_key,
+                ...(gsi.config.hash_keys || gsi.config.range_keys ? {
+                    key_schema: asBlock([
+                        ...gsi.hashKeys.map(key => ({
+                            attribute_name: key.name,
+                            key_type: 'HASH',
+                        })),
+                        ...gsi.rangeKeys.map(key => ({
+                            attribute_name: key.name,
+                            key_type: 'RANGE',
+                        })),
+                    ]),
+                } : {
+                    hash_key: gsi.config.hash_key,
+                    range_key: gsi.config.range_key,
+                }),
                 ...(!isPayPerRequest ? {
-                    read_capacity: gsi.read_capacity || 1,
-                    write_capacity: gsi.write_capacity || 1,
+                    read_capacity: gsi.config.read_capacity || 1,
+                    write_capacity: gsi.config.write_capacity || 1,
                 } : {}),
-                projection_type: gsi.projection_type || 'ALL'
+                projection_type: gsi.config.projection_type || 'ALL'
             }))) : undefined,
             lifecycle: block.auto_scaling ? asBlock([{
                 ignore_changes: [
