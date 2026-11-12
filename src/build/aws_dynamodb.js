@@ -1103,6 +1103,7 @@
     const attributes = [...attributesByName.values()];
     const billingMode = block.billing_mode || "PROVISIONED";
     const isPayPerRequest = asStr(billingMode) === "PAY_PER_REQUEST";
+    const streamEnabled = block.stream_enabled || asSyntax(ddbStreamEvents.length > 0 || regions.length > 1);
     let databags = [
       traversalTransform("aws_dynamodb_traversal_transform", {
         [`aws_dynamodb.${bag.Name}`]: `aws_dynamodb_table.${bag.Name}_aws_dynamodb`
@@ -1114,11 +1115,16 @@
         write_capacity: isPayPerRequest ? void 0 : block.write_capacity || 0,
         hash_key: block.hash_key,
         range_key: block.range_key,
-        // streams are required when:
-        // - a dynamodb stream event handler exists
-        // - using multi region replicas
-        stream_enabled: block.stream_enabled || ddbStreamEvents.length > 0 || regions.length > 1,
-        stream_view_type: block.stream_view_type || (ddbStreamEvents.length > 0 || regions.length > 1 ? "NEW_AND_OLD_IMAGES" : void 0),
+        stream_enabled: streamEnabled,
+        stream_view_type: block.stream_view_type || {
+          Type: "conditional",
+          Condition: streamEnabled,
+          TrueResult: asSyntax("NEW_AND_OLD_IMAGES"),
+          FalseResult: {
+            Type: "literal_value",
+            Value: null
+          }
+        },
         table_class: block.table_class,
         attribute: asBlock(attributes),
         ttl: block.ttl_key ? asBlock([{
