@@ -303,6 +303,7 @@
         display_name: block.display_name || null,
         message: block.message || null,
         no_cache: true,
+        source_paths: [dir || "."],
         excludes: [
           ".terraform",
           ".terraform.lock.hcl"
@@ -361,6 +362,7 @@
         display_name: block.display_name || null,
         message: block.message || null,
         no_cache: true,
+        source_paths: [],
         input_files: {
           "tf_output.json": JSON.stringify({
             terraform_empty_execute_output: {
@@ -412,6 +414,7 @@
         display_name: block.display_name || null,
         message: block.message || null,
         no_cache: true,
+        source_paths: [dir || "."],
         dockerfile: `
                 FROM hashicorp/terraform:latest
                 RUN apk add jq

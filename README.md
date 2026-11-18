@@ -99,6 +99,8 @@ Quick links:
 
 ## Fargate service image deployments
 
+`container_image.source_paths` limits the project files sent to the image builder for Fargate and `aws_ecr_repository_with_image`. List paths relative to the project root, including files used by `pre_build_cmd`. The component supplies the configured Dockerfile separately. Set `container_image.use_root_dockerignore = true` to apply the project root's `.dockerignore` during this transfer.
+
 - `aws_fargate_service` resolves the selected ECR repository's `latest` image to a digest for its task definition. Applying after publishing a different image creates a task-definition revision and updates the service, including when `dont_redeploy_on_apply = true`.
 - `repository_url` selects an existing private ECR repository for publishing and digest resolution. The lookup and ECR login use that repository's account and region; the service does not create or manage its retention policy.
 - Building or copying to `repository_url` requires a concrete URL because publishing runs before the main Terraform apply. Terraform expressions in the URL can be used with `container_image.skip_build = true`.

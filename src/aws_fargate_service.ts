@@ -871,6 +871,8 @@ function awsFargateServiceApplyIterator(bag: Databag): Pipeline {
                 Value: {
                     display_name: `Image build - aws_fargate_service.${bag.Name}`,
                     no_cache: true,
+                    source_paths: dotContainerImage.source_paths,
+                    use_root_dockerignore: dotContainerImage.use_root_dockerignore,
                     input_files:{
                         '__barbe_dockerfile': dockerfileContent,
                     },
