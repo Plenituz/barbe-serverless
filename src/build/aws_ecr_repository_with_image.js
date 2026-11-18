@@ -1124,6 +1124,8 @@
           Value: {
             display_name: `Image build - aws_ecr_repository_with_image.${bag.Name}`,
             no_cache: true,
+            source_paths: dotContainerImage.source_paths,
+            use_root_dockerignore: dotContainerImage.use_root_dockerignore,
             input_files: {
               "__barbe_dockerfile": dockerfileContent
             },
