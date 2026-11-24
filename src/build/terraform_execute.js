@@ -262,6 +262,7 @@
   // terraform_execute.ts
   var container = readDatabagContainer();
   var outputDir = barbeOutputDir();
+  var terraformImage = "hashicorp/terraform:1.17.2";
   onlyRunForLifecycleSteps([
     ...allApplySteps,
     ...allDestroySteps
@@ -287,6 +288,7 @@
     const awsCreds = getAwsCreds();
     const gcpToken = getGcpToken(true);
     const dir = asStr(block.dir);
+    const minimalRefresh = mode === "apply" && block.minimal_refresh && asVal(block.minimal_refresh) === true;
     let readBack = null;
     if (mode === "apply") {
       readBack = removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`);
@@ -309,7 +311,7 @@
           ".terraform.lock.hcl"
         ],
         dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
                 RUN apk add jq
 
                 COPY --from=src ./${dir} /src
@@ -323,7 +325,7 @@
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || "us-east-1"}"
 
                 RUN terraform init -input=false
-                RUN terraform ${mode} -auto-approve -input=false ${vars}
+                RUN terraform ${mode}${minimalRefresh ? " -minimal-refresh" : ""} -auto-approve -input=false ${vars}
                 RUN terraform output -json > terraform_output.json
                 RUN cat terraform_output.json | jq 'to_entries | map({ "key": .key, "value": .value.value }) | { "terraform_execute_output": { "${bag.Name}": . } }' > terraform_output_${bag.Name}.json
 
@@ -372,7 +374,7 @@
           "template.tf.json": asStr(block.template_json)
         },
         dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
 
                 ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
 
@@ -416,7 +418,7 @@
         no_cache: true,
         source_paths: [dir || "."],
         dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
                 RUN apk add jq
 
                 COPY --from=src ./${dir} /src

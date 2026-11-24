@@ -16,6 +16,7 @@ switch(barbeLifecycleStep()) {
             Value: {
                 display_name: 'Terraform apply - root directory',
                 mode: 'apply',
+                minimal_refresh: os.getenv('TERRAFORM_MINIMAL_REFRESH') === '1',
                 dir: outputDir
             }
         })
