@@ -4,6 +4,7 @@ import { getAwsCreds, getGcpToken } from './barbe-sls-lib/lib';
 
 const container = readDatabagContainer()
 const outputDir = barbeOutputDir()
+const terraformImage = 'hashicorp/terraform:1.17.2'
 onlyRunForLifecycleSteps([
     ...allApplySteps,
     ...allDestroySteps
@@ -32,6 +33,7 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
     const awsCreds = getAwsCreds()
     const gcpToken = getGcpToken(true)
     const dir = asStr(block.dir)
+    const minimalRefresh = mode === 'apply' && block.minimal_refresh && asVal(block.minimal_refresh) === true
     let readBack: string | null = null
     if(mode === 'apply') {
         readBack = removeBarbeOutputPrefix(`${dir}/terraform_output_${bag.Name}.json`)
@@ -55,7 +57,7 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
                 '.terraform.lock.hcl'
             ],
             dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
                 RUN apk add jq
 
                 COPY --from=src ./${dir} /src
@@ -69,7 +71,7 @@ function terraformExecuteIterator(bag: Databag): (Databag | SugarCoatedDatabag)[
                 ENV AWS_REGION="${os.getenv("AWS_REGION") || 'us-east-1'}"
 
                 RUN terraform init -input=false
-                RUN terraform ${mode} -auto-approve -input=false ${vars}
+                RUN terraform ${mode}${minimalRefresh ? ' -minimal-refresh' : ''} -auto-approve -input=false ${vars}
                 RUN terraform output -json > terraform_output.json
                 RUN cat terraform_output.json | jq 'to_entries | map({ "key": .key, "value": .value.value }) | { "terraform_execute_output": { "${bag.Name}": . } }' > terraform_output_${bag.Name}.json
 
@@ -122,7 +124,7 @@ function terraformEmptyExecuteIterator(bag: Databag): (Databag | SugarCoatedData
                 'template.tf.json': asStr(block.template_json)
             },
             dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
 
                 ENV GOOGLE_OAUTH_ACCESS_TOKEN="${gcpToken}"
 
@@ -169,7 +171,7 @@ function terraformExecuteGetOutputIterator(bag: Databag): (Databag | SugarCoated
             no_cache: true,
             source_paths: [dir || '.'],
             dockerfile: `
-                FROM hashicorp/terraform:latest
+                FROM ${terraformImage}
                 RUN apk add jq
 
                 COPY --from=src ./${dir} /src
